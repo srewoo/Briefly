@@ -1,84 +1,42 @@
-/* Productify — Theme CSS Variables (extends design-tokens.css) */
-
-/* Dark theme is default — variables defined in design-tokens.css :root */
-/* Light theme overrides */
 [data-theme="light"] {
   color-scheme: light;
 }
 
-/* Smooth theme cross-fade */
-*, *::before, *::after {
-  transition:
-    background-color 0.4s ease,
-    border-color 0.4s ease,
-    color 0.4s ease,
-    box-shadow 0.4s ease;
+[data-theme="dark"] {
+  color-scheme: dark;
 }
 
-/* Override transition for things that shouldn't cross-fade */
-.no-theme-transition,
-.no-theme-transition * {
-  transition: none !important;
-}
+.intent-badge[data-intent="summarize"] { background: rgba(77, 190, 173, 0.15); }
+.intent-badge[data-intent="prompt_generation"] { background: rgba(255, 124, 67, 0.18); }
+.intent-badge[data-intent="task_extraction"] { background: rgba(90, 216, 156, 0.14); }
+.intent-badge[data-intent="documentation"] { background: rgba(134, 167, 255, 0.15); }
+.intent-badge[data-intent="testing"] { background: rgba(246, 197, 106, 0.16); }
+.intent-badge[data-intent="code_review"] { background: rgba(216, 84, 60, 0.16); }
+.intent-badge[data-intent="user_story"] { background: rgba(176, 122, 255, 0.16); }
+.intent-badge[data-intent="explain"] { background: rgba(77, 190, 173, 0.15); }
+.intent-badge[data-intent="translate_intent"] { background: rgba(255, 107, 154, 0.16); }
+.intent-badge[data-intent="email_draft"] { background: rgba(246, 197, 106, 0.16); }
+.intent-badge[data-intent="compare"] { background: rgba(108, 173, 245, 0.16); }
+.intent-badge[data-intent="custom"] { background: rgba(255, 255, 255, 0.08); }
 
-/* Intent badge color mapping */
-.intent-badge[data-intent="summarize"]          { --intent-color: #00D2FF; }
-.intent-badge[data-intent="prompt_generation"]  { --intent-color: #6C5CE7; }
-.intent-badge[data-intent="task_extraction"]    { --intent-color: #00E676; }
-.intent-badge[data-intent="documentation"]      { --intent-color: #74B9FF; }
-.intent-badge[data-intent="testing"]            { --intent-color: #FDCB6E; }
-.intent-badge[data-intent="code_review"]        { --intent-color: #E17055; }
-.intent-badge[data-intent="user_story"]         { --intent-color: #A29BFE; }
-.intent-badge[data-intent="explain"]            { --intent-color: #55EFC4; }
-.intent-badge[data-intent="translate_intent"]   { --intent-color: #FD79A8; }
-.intent-badge[data-intent="email_draft"]        { --intent-color: #FFEAA7; }
-.intent-badge[data-intent="compare"]            { --intent-color: #81ECEC; }
-.intent-badge[data-intent="custom"]             { --intent-color: #B2BEC3; }
-
-.intent-badge {
-  background: rgba(var(--intent-color-rgb, 108, 92, 231), 0.15);
-  border: 1px solid color-mix(in srgb, var(--intent-color, #6C5CE7) 50%, transparent);
-  color: var(--intent-color, #6C5CE7);
-}
-
-/* State-based color overrides */
-.state-success {
-  --accent-current: var(--accent-success);
-  color: var(--accent-success);
-}
-.state-error {
-  --accent-current: var(--accent-error);
-  color: var(--accent-error);
-}
-.state-warning {
-  --accent-current: var(--accent-warning);
-  color: var(--accent-warning);
-}
-
-/* Scrollbar theming */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 8px;
+  height: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: var(--border-glass);
-  border-radius: var(--radius-full);
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255,255,255,0.15);
-}
-[data-theme="light"] ::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.12);
-}
-[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0,0,0,0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
 }
 
-/* Selection color */
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(15, 20, 18, 0.12);
+}
+
 ::selection {
-  background: rgba(108, 92, 231, 0.35);
-  color: var(--text-primary);
+  background: rgba(255, 124, 67, 0.24);
 }

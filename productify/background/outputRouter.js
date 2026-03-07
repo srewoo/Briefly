@@ -18,7 +18,7 @@ const OutputRouter = {
       case 'linear':   return this.sendToLinear(output, context, encryptedKeys);
       case 'slack':    return this.sendToSlack(output, context, encryptedKeys);
       case 'confluence': return this.sendToConfluence(output, context, encryptedKeys, settings);
-      case 'webhook':  return this.sendToWebhook(output, context, settings);
+      case 'webhook':  return this.sendToWebhook(output, context, settings, encryptedKeys);
       default: throw new Error(`Unknown integration: ${target}`);
     }
   },
@@ -181,8 +181,8 @@ const OutputRouter = {
     return { success: true, message: 'Appended to Confluence page' };
   },
 
-  async sendToWebhook(output, context, settings) {
-    const webhookUrl = settings.webhookUrl;
+  async sendToWebhook(output, context, settings, encryptedKeys) {
+    const webhookUrl = settings.webhookUrl || await this._decrypt(encryptedKeys.webhook);
     if (!webhookUrl) throw new Error('Custom webhook URL not configured in Settings.');
     const res = await fetch(webhookUrl, {
       method: 'POST',

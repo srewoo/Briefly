@@ -10,108 +10,116 @@
   <link rel="stylesheet" href="sidepanel.css" />
 </head>
 <body>
-
-<!-- ═══════════════════════════════════ MAIN PANEL ═══════════════════════════════════ -->
 <div id="app" class="app">
+  <div class="ambient ambient-left"></div>
+  <div class="ambient ambient-right"></div>
 
-  <!-- HEADER -->
   <header class="header" id="header">
-    <div class="header-logo">
-      <div class="logo-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z" fill="url(#logoGrad)"/>
-          <defs>
-            <linearGradient id="logoGrad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#6C5CE7"/>
-              <stop offset="100%" stop-color="#00D2FF"/>
-            </linearGradient>
-          </defs>
-        </svg>
+    <div class="header-brand">
+      <div class="brand-mark" aria-hidden="true">
+        <span class="brand-mark-dot"></span>
       </div>
-      <span class="logo-text">Productify</span>
+      <div>
+        <p class="brand-kicker">Browser Copilot</p>
+        <h1 class="brand-title">Productify</h1>
+      </div>
     </div>
     <div class="header-actions">
-      <button class="icon-btn" id="btn-history" title="History (Ctrl+Shift+H)" aria-label="Toggle history">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+      <button class="icon-btn" id="btn-history" title="History (Ctrl+Shift+H)" aria-label="Open history">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.708"/><path d="M3 3v6h6"/><path d="M12 7v5l4 2"/></svg>
       </button>
       <button class="icon-btn" id="btn-library" title="Prompt Library" aria-label="Open prompt library">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="12" y1="7" x2="16" y2="7"/><line x1="12" y1="11" x2="16" y2="11"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
       </button>
       <button class="icon-btn" id="btn-settings" title="Settings" aria-label="Open settings">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
-      <button class="icon-btn theme-toggle" id="btn-theme" title="Toggle theme" aria-label="Toggle dark/light theme">
+      <button class="icon-btn theme-toggle" id="btn-theme" title="Toggle theme" aria-label="Toggle theme">
         <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-        <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>
+        <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M4.22 4.22l1.42 1.42"/><path d="M18.36 18.36l1.42 1.42"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="M4.22 19.78l1.42-1.42"/><path d="M18.36 5.64l1.42-1.42"/></svg>
       </button>
     </div>
   </header>
 
-  <!-- VIEWS CONTAINER -->
   <div class="views-container">
-
-    <!-- ──────────── MAIN VIEW ──────────── -->
     <div id="view-main" class="view active">
-
-      <!-- MIC HERO SECTION -->
-      <section class="mic-section" id="mic-section">
-        <div class="mic-wrapper" id="mic-wrapper">
-          <!-- Pulse rings (shown during recording) -->
-          <div class="pulse-ring ring-1" id="ring-1"></div>
-          <div class="pulse-ring ring-2" id="ring-2"></div>
-          <div class="mic-button-outer" id="mic-outer">
-            <button class="mic-button" id="mic-btn" aria-label="Start recording" title="Click to record">
-              <!-- Idle mic icon -->
-              <svg class="mic-icon mic-icon-idle" width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-              </svg>
-              <!-- Recording stop icon -->
-              <svg class="mic-icon mic-icon-recording" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" style="display:none">
-                <rect x="6" y="6" width="12" height="12" rx="2"/>
-              </svg>
-              <!-- Processing spinner -->
-              <div class="mic-spinner" id="mic-spinner" style="display:none">
-                <div class="spinner-ring"></div>
-              </div>
-            </button>
-          </div>
+      <section class="hero-panel">
+        <div class="hero-copy">
+          <p class="eyebrow">Voice, text, and page-aware workflows</p>
+          <h2>Turn the tab in front of you into a usable draft.</h2>
+          <p class="hero-subtitle">Pick a recipe, inspect the captured context, then generate something you can actually ship.</p>
         </div>
-        
-        <!-- Waveform canvas -->
-        <canvas id="waveform-canvas" class="waveform-canvas" width="200" height="40"></canvas>
-        
-        <!-- Status label -->
-        <p class="mic-hint" id="mic-hint">Hold Space or click to speak</p>
-        
-        <!-- STT provider badge -->
-        <div class="stt-badge" id="stt-badge">
-          <span class="stt-dot"></span>
-          <span id="stt-label">Whisper</span>
+        <div class="hero-recorder">
+          <div class="mic-wrapper" id="mic-wrapper">
+            <div class="pulse-ring ring-1"></div>
+            <div class="pulse-ring ring-2"></div>
+            <div class="mic-button-shell">
+              <button class="mic-button" id="mic-btn" aria-label="Start recording" title="Click to record">
+                <svg class="mic-icon mic-icon-idle" width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 18v3" stroke="currentColor" stroke-width="2"/><path d="M8 21h8" stroke="currentColor" stroke-width="2"/></svg>
+                <svg class="mic-icon mic-icon-recording" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+                <div class="mic-spinner" id="mic-spinner" style="display:none"><div class="spinner-ring"></div></div>
+              </button>
+            </div>
+          </div>
+          <canvas id="waveform-canvas" class="waveform-canvas" width="200" height="42"></canvas>
+          <p class="mic-hint" id="mic-hint">Hold Space or click to speak</p>
+          <div class="hero-status-row">
+            <div class="stt-badge" id="stt-badge"><span class="stt-dot"></span><span id="stt-label">Whisper</span></div>
+            <span class="shortcut-pill">Cmd/Ctrl + Enter to run typed prompts</span>
+          </div>
         </div>
       </section>
 
-      <!-- INTENT BADGE -->
+      <section class="composer-panel panel-card">
+        <div class="panel-heading-row">
+          <div>
+            <p class="panel-kicker">Command Studio</p>
+            <h3 class="panel-title">Compose with a recipe, not just a microphone.</h3>
+          </div>
+          <button class="text-btn" id="btn-refresh-context">Refresh context</button>
+        </div>
+        <div class="recipe-toolbar" id="recipe-toolbar"></div>
+        <label class="sr-only" for="command-input">Command input</label>
+        <textarea id="command-input" class="command-input" rows="4" placeholder="Type a command, or leave this empty and run the active recipe against the current page."></textarea>
+        <div class="composer-actions">
+          <div class="control-pills">
+            <label class="control-pill"><input type="checkbox" id="toggle-page-context" /><span>Use page context</span></label>
+            <label class="control-pill"><input type="checkbox" id="toggle-selection-only" /><span>Prefer selection only</span></label>
+            <label class="control-pill"><input type="checkbox" id="toggle-redact-sensitive" /><span>Redact sensitive strings</span></label>
+          </div>
+          <button class="btn-primary" id="btn-run-command">Generate</button>
+        </div>
+      </section>
+
+      <section class="context-panel panel-card" id="context-card">
+        <div class="panel-heading-row">
+          <div>
+            <p class="panel-kicker">Captured Context</p>
+            <h3 class="panel-title" id="context-page-title">Loading current tab...</h3>
+          </div>
+          <span class="timestamp-chip" id="context-last-updated">Waiting</span>
+        </div>
+        <p class="context-meta" id="context-meta">No active page snapshot yet.</p>
+        <p class="context-selection" id="context-selection">No selected text detected.</p>
+        <div class="signal-list" id="context-signal-list"></div>
+      </section>
+
       <div class="intent-row" id="intent-row" style="display:none">
-        <div class="intent-badge animate-badge" id="intent-badge" data-intent="summarize">
-          <span class="intent-icon" id="intent-icon">📝</span>
+        <div class="intent-badge" id="intent-badge" data-intent="summarize">
+          <span class="intent-icon" id="intent-icon">AI</span>
           <span class="intent-name" id="intent-name">Summarize</span>
           <span class="intent-confidence" id="intent-confidence">94%</span>
         </div>
-        <!-- Low confidence suggestions -->
         <div class="intent-suggestions" id="intent-suggestions" style="display:none">
-          <span class="suggestions-label">Try:</span>
-          <button class="suggestion-pill" data-intent="summarize">Summarize</button>
-          <button class="suggestion-pill" data-intent="explain">Explain</button>
-          <button class="suggestion-pill" data-intent="custom">Custom</button>
+          <span class="suggestions-label">Try</span>
         </div>
       </div>
 
-      <!-- TRANSCRIPT SECTION -->
-      <section class="transcript-section" id="transcript-section" style="display:none">
+      <section class="transcript-section panel-card" id="transcript-section" style="display:none">
         <div class="section-header" id="transcript-toggle">
           <div class="section-header-left">
-            <span class="section-icon">🎙️</span>
-            <span class="section-title">Transcript</span>
+            <span class="section-icon">Transcript</span>
+            <span class="section-title">Source request</span>
           </div>
           <button class="collapse-btn" aria-label="Toggle transcript">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6,9 12,15 18,9"/></svg>
@@ -121,73 +129,54 @@
           <p class="transcript-text" id="transcript-text"></p>
           <div class="transcript-actions">
             <button class="text-btn" id="btn-edit-transcript">Edit</button>
-            <button class="text-btn" id="btn-refine-voice">🎙️ Refine with Voice</button>
+            <button class="text-btn" id="btn-refine-voice">Use voice as follow-up</button>
           </div>
         </div>
       </section>
 
-      <!-- OUTPUT SECTION -->
-      <section class="output-section" id="output-section" style="display:none">
+      <section class="output-section panel-card" id="output-section" style="display:none">
         <div class="section-header">
           <div class="section-header-left">
-            <span class="section-icon">✨</span>
-            <span class="section-title">Output</span>
+            <span class="section-icon">Output</span>
+            <span class="section-title">Working draft</span>
           </div>
           <div class="output-header-actions">
-            <button class="icon-btn-sm" id="btn-star" title="Save to library" aria-label="Save to prompt library">
+            <button class="icon-btn-sm" id="btn-star" title="Save to library" aria-label="Save to library">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
             </button>
           </div>
         </div>
         <div class="section-body output-body">
-          <!-- Streaming cursor -->
           <div class="output-content" id="output-content">
             <div class="output-placeholder" id="output-placeholder">
-              <div class="streaming-dots" id="streaming-dots" style="display:none">
-                <span></span><span></span><span></span>
-              </div>
+              <div class="streaming-dots" id="streaming-dots" style="display:none"><span></span><span></span><span></span></div>
             </div>
             <div class="markdown-output" id="markdown-output"></div>
           </div>
         </div>
       </section>
 
-      <!-- ACTION BAR -->
       <div class="action-bar" id="action-bar" style="display:none">
-        <button class="action-btn" id="btn-copy" title="Copy to clipboard (Ctrl+Shift+C)">
-          <svg class="action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          <span>Copy</span>
-        </button>
-        <button class="action-btn" id="btn-export" title="Export as file">
-          <svg class="action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span>Export</span>
-        </button>
-        <button class="action-btn" id="btn-integrate" title="Send to integration">
-          <svg class="action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          <span>Send</span>
-        </button>
-        <button class="action-btn action-btn-refine" id="btn-refine" title="Refine or iterate on this output">
-          <svg class="action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>
-          <span>Refine</span>
-        </button>
+        <button class="action-btn" id="btn-copy"><span>Copy</span></button>
+        <button class="action-btn" id="btn-export"><span>Export</span></button>
+        <button class="action-btn" id="btn-integrate"><span>Review & Send</span></button>
+        <button class="action-btn action-btn-refine" id="btn-refine"><span>Refine</span></button>
       </div>
 
-      <!-- REFINE INPUT (shown when Refine is clicked) -->
       <div class="refine-section" id="refine-section" style="display:none">
         <div class="refine-input-row">
-          <input type="text" id="refine-input" class="refine-input" placeholder="How should I refine this? (or use voice ↑)" />
-          <button class="refine-submit-btn" id="btn-refine-submit">
+          <input type="text" id="refine-input" class="refine-input" placeholder="Ask for another pass, a different format, or a tighter version." />
+          <button class="refine-submit-btn" id="btn-refine-submit" aria-label="Submit refinement">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></svg>
           </button>
         </div>
       </div>
 
-      <!-- HISTORY PANEL (collapsible) -->
-      <section class="history-section" id="history-section">
+      <section class="history-section panel-card" id="history-section">
         <div class="section-header" id="history-toggle">
           <div class="section-header-left">
-            <span class="section-icon">📜</span>
-            <span class="section-title">History</span>
+            <span class="section-icon">History</span>
+            <span class="section-title">Recent outputs</span>
             <span class="history-count badge" id="history-count">0</span>
           </div>
           <button class="collapse-btn" aria-label="Toggle history">
@@ -195,20 +184,16 @@
           </button>
         </div>
         <div class="section-body" id="history-body">
-          <div class="history-empty" id="history-empty">
-            <p>No history yet. Start speaking to get going.</p>
-          </div>
+          <div class="history-empty" id="history-empty"><p>No history yet. Run a prompt or record a note.</p></div>
           <ul class="history-list" id="history-list"></ul>
           <button class="text-btn text-btn-danger" id="btn-clear-all-history" style="display:none">Clear All</button>
         </div>
       </section>
+    </div>
 
-    </div><!-- /view-main -->
-
-    <!-- ──────────── HISTORY VIEW (full) ──────────── -->
     <div id="view-history" class="view">
       <div class="view-header">
-        <button class="back-btn" id="btn-back-from-history">
+        <button class="back-btn" id="btn-back-from-history" aria-label="Back">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
         </button>
         <h2 class="view-title">History</h2>
@@ -223,293 +208,238 @@
       <ul class="history-list history-list-full" id="history-list-full"></ul>
     </div>
 
-    <!-- ──────────── LIBRARY VIEW ──────────── -->
     <div id="view-library" class="view">
       <div class="view-header">
-        <button class="back-btn" id="btn-back-from-library">
+        <button class="back-btn" id="btn-back-from-library" aria-label="Back">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
         </button>
-        <h2 class="view-title">Prompt Library</h2>
-        <button class="icon-btn" id="btn-new-prompt" title="New prompt">
+        <h2 class="view-title">Library</h2>
+        <button class="icon-btn" id="btn-new-prompt" title="New prompt" aria-label="New prompt">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
       </div>
       <div class="view-search">
         <div class="search-input-wrapper">
           <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="search" id="library-search" class="search-input" placeholder="Search prompts..." />
+          <input type="search" id="library-search" class="search-input" placeholder="Search saved prompts..." />
         </div>
       </div>
-      <!-- Tag filter pills -->
-      <div class="tag-filter-row" id="tag-filter-row">
-        <button class="tag-pill active" data-tag="all">All</button>
-      </div>
+      <div class="tag-filter-row" id="tag-filter-row"><button class="tag-pill active" data-tag="all">All</button></div>
       <div class="library-empty" id="library-empty">
-        <div class="empty-icon">⭐</div>
+        <div class="empty-icon">Archive</div>
         <p>No saved prompts yet.</p>
-        <p class="text-secondary">Star any output to save it here.</p>
+        <p class="text-secondary">Star any output to keep it here.</p>
       </div>
       <ul class="library-list" id="library-list"></ul>
     </div>
 
-    <!-- ──────────── SETTINGS VIEW ──────────── -->
     <div id="view-settings" class="view">
       <div class="view-header">
-        <button class="back-btn" id="btn-back-from-settings">
+        <button class="back-btn" id="btn-back-from-settings" aria-label="Back">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
         </button>
         <h2 class="view-title">Settings</h2>
       </div>
       <div class="settings-body">
+        <div class="settings-group panel-card compact-card">
+          <h3 class="settings-group-title">Assistant defaults</h3>
+          <div class="settings-grid two-col">
+            <div class="settings-field">
+              <label class="field-label" for="default-template">Default recipe</label>
+              <select id="default-template" class="field-select"></select>
+            </div>
+            <div class="settings-field">
+              <label class="field-label" for="output-tone">Default tone</label>
+              <select id="output-tone" class="field-select">
+                <option value="auto">Auto</option>
+                <option value="formal">Formal</option>
+                <option value="professional">Professional</option>
+                <option value="casual">Casual</option>
+                <option value="technical">Technical</option>
+                <option value="concise">Concise</option>
+              </select>
+            </div>
+            <div class="settings-field">
+              <label class="field-label" for="output-format">Output format</label>
+              <select id="output-format" class="field-select">
+                <option value="markdown">Markdown</option>
+                <option value="plain">Plain text</option>
+                <option value="structured">Structured</option>
+              </select>
+            </div>
+            <div class="settings-field">
+              <label class="field-label" for="settings-review-before-send">Delivery flow</label>
+              <label class="switch-row"><input type="checkbox" id="settings-review-before-send" /><span>Review before sending to integrations</span></label>
+            </div>
+          </div>
+        </div>
 
-        <!-- API Keys -->
-        <div class="settings-group">
-          <h3 class="settings-group-title">API Keys</h3>
-          
+        <div class="settings-group panel-card compact-card">
+          <h3 class="settings-group-title">Voice and context</h3>
+          <div class="settings-grid two-col">
+            <div class="settings-field">
+              <label class="field-label" for="stt-provider">Speech provider</label>
+              <select id="stt-provider" class="field-select">
+                <option value="whisper">OpenAI Whisper</option>
+                <option value="google">Google Speech-to-Text</option>
+                <option value="elevenlabs">ElevenLabs Speech-to-Text</option>
+              </select>
+            </div>
+            <div class="settings-field">
+              <label class="field-label" for="stt-language">Language</label>
+              <select id="stt-language" class="field-select">
+                <option value="auto">Auto-detect</option>
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="ja">Japanese</option>
+                <option value="zh">Chinese</option>
+                <option value="hi">Hindi</option>
+                <option value="ar">Arabic</option>
+                <option value="pt">Portuguese</option>
+                <option value="ru">Russian</option>
+              </select>
+            </div>
+          </div>
+          <div class="toggle-stack">
+            <label class="switch-row"><input type="checkbox" id="pref-use-page-context" /><span>Send page context with prompts</span></label>
+            <label class="switch-row"><input type="checkbox" id="pref-selection-only" /><span>Prefer selected text over full page context</span></label>
+            <label class="switch-row"><input type="checkbox" id="pref-redact-sensitive" /><span>Redact keys, tokens, emails, and long numbers before generation</span></label>
+          </div>
+        </div>
+
+        <div class="settings-group panel-card compact-card">
+          <h3 class="settings-group-title">Model and integration keys</h3>
           <div class="settings-field">
-            <label class="field-label" for="key-openai">OpenAI API Key <span class="required-star">*</span></label>
+            <label class="field-label" for="key-openai">OpenAI API key <span class="required-star">*</span></label>
             <div class="key-input-row">
               <input type="password" id="key-openai" class="field-input" placeholder="sk-..." autocomplete="off" />
-              <button class="toggle-visibility-btn" data-target="key-openai" aria-label="Show/hide key">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
+              <button class="toggle-visibility-btn" data-target="key-openai" aria-label="Show or hide key">Show</button>
             </div>
-            <p class="field-hint">Required for Whisper STT and GPT-4o generation.</p>
           </div>
-
-          <div class="settings-field">
-            <label class="field-label" for="key-google-stt">Google STT API Key</label>
-            <div class="key-input-row">
+          <div class="settings-grid two-col">
+            <div class="settings-field">
+              <label class="field-label" for="key-google-stt">Google STT key</label>
               <input type="password" id="key-google-stt" class="field-input" placeholder="AIza..." autocomplete="off" />
-              <button class="toggle-visibility-btn" data-target="key-google-stt" aria-label="Show/hide key">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
             </div>
-            <p class="field-hint">Optional. Enables Google Speech-to-Text as alternative provider.</p>
-          </div>
-          
-          <div class="settings-field">
-            <label class="field-label" for="key-eleven-stt">ElevenLabs STT API Key</label>
-            <div class="key-input-row">
-              <input type="password" id="key-eleven-stt" class="field-input" placeholder="elevenlabs api key..." autocomplete="off" />
-              <button class="toggle-visibility-btn" data-target="key-eleven-stt" aria-label="Show/hide key">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
+            <div class="settings-field">
+              <label class="field-label" for="key-eleven-stt">ElevenLabs STT key</label>
+              <input type="password" id="key-eleven-stt" class="field-input" placeholder="ElevenLabs key" autocomplete="off" />
             </div>
-            <p class="field-hint">Optional. Uses ElevenLabs Speech-to-Text as provider.</p>
-          </div>
-        </div>
-
-        <!-- Voice & STT -->
-        <div class="settings-group">
-          <h3 class="settings-group-title">Voice & Speech</h3>
-          
-          <div class="settings-field">
-            <label class="field-label" for="stt-provider">STT Provider</label>
-            <select id="stt-provider" class="field-select">
-              <option value="whisper">OpenAI Whisper (Primary — Best accuracy)</option>
-              <option value="google">Google Speech-to-Text (Faster, lower cost)</option>
-              <option value="elevenlabs">ElevenLabs Speech-to-Text</option>
-            </select>
-          </div>
-
-          <div class="settings-field">
-            <label class="field-label" for="stt-language">Language</label>
-            <select id="stt-language" class="field-select">
-              <option value="auto">Auto-detect</option>
-              <option value="en">English</option>
-              <option value="es">Spanish</option>
-              <option value="fr">French</option>
-              <option value="de">German</option>
-              <option value="ja">Japanese</option>
-              <option value="zh">Chinese</option>
-              <option value="hi">Hindi</option>
-              <option value="ar">Arabic</option>
-              <option value="pt">Portuguese</option>
-              <option value="ru">Russian</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Output Preferences -->
-        <div class="settings-group">
-          <h3 class="settings-group-title">Output Preferences</h3>
-          
-          <div class="settings-field">
-            <label class="field-label" for="output-tone">Default Tone</label>
-            <select id="output-tone" class="field-select">
-              <option value="auto">Auto (match context)</option>
-              <option value="formal">Formal</option>
-              <option value="professional">Professional</option>
-              <option value="casual">Casual</option>
-              <option value="technical">Technical</option>
-              <option value="concise">Concise</option>
-            </select>
-          </div>
-
-          <div class="settings-field">
-            <label class="field-label" for="output-format">Default Format</label>
-            <select id="output-format" class="field-select">
-              <option value="markdown">Markdown</option>
-              <option value="plain">Plain Text</option>
-              <option value="structured">Structured (tables/lists)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Integrations -->
-        <div class="settings-group">
-          <h3 class="settings-group-title">Integrations</h3>
-          
-          <div class="integration-item">
-            <div class="integration-info">
-              <span class="integration-name">📘 Notion</span>
-              <span class="integration-status" id="notion-status">Not connected</span>
+            <div class="settings-field">
+              <label class="field-label" for="key-notion">Notion token</label>
+              <input type="password" id="key-notion" class="field-input" placeholder="secret_..." autocomplete="off" />
             </div>
-            <div class="integration-actions">
-              <input type="password" id="key-notion" class="field-input field-input-sm" placeholder="secret_..." />
-              <button class="btn-connect" data-integration="notion">Connect</button>
+            <div class="settings-field">
+              <label class="field-label" for="key-github">GitHub token</label>
+              <input type="password" id="key-github" class="field-input" placeholder="ghp_..." autocomplete="off" />
             </div>
-          </div>
-
-          <div class="integration-item">
-            <div class="integration-info">
-              <span class="integration-name">🐙 GitHub</span>
-              <span class="integration-status" id="github-status">Not connected</span>
+            <div class="settings-field">
+              <label class="field-label" for="key-jira">Jira token</label>
+              <input type="password" id="key-jira" class="field-input" placeholder="API token" autocomplete="off" />
             </div>
-            <div class="integration-actions">
-              <input type="password" id="key-github" class="field-input field-input-sm" placeholder="ghp_..." />
-              <button class="btn-connect" data-integration="github">Connect</button>
+            <div class="settings-field">
+              <label class="field-label" for="key-linear">Linear token</label>
+              <input type="password" id="key-linear" class="field-input" placeholder="lin_api_..." autocomplete="off" />
             </div>
-          </div>
-
-          <div class="integration-item">
-            <div class="integration-info">
-              <span class="integration-name">🔷 Jira</span>
-              <span class="integration-status" id="jira-status">Not connected</span>
+            <div class="settings-field">
+              <label class="field-label" for="key-slack">Slack webhook URL</label>
+              <input type="password" id="key-slack" class="field-input" placeholder="https://hooks.slack.com/..." autocomplete="off" />
             </div>
-            <div class="integration-actions">
-              <input type="password" id="key-jira" class="field-input field-input-sm" placeholder="API token..." />
-              <button class="btn-connect" data-integration="jira">Connect</button>
-            </div>
-          </div>
-
-          <div class="integration-item">
-            <div class="integration-info">
-              <span class="integration-name">📐 Linear</span>
-              <span class="integration-status" id="linear-status">Not connected</span>
-            </div>
-            <div class="integration-actions">
-              <input type="password" id="key-linear" class="field-input field-input-sm" placeholder="lin_api_..." />
-              <button class="btn-connect" data-integration="linear">Connect</button>
-            </div>
-          </div>
-
-          <div class="integration-item">
-            <div class="integration-info">
-              <span class="integration-name">💬 Slack</span>
-              <span class="integration-status" id="slack-status">Not connected</span>
-            </div>
-            <div class="integration-actions">
-              <input type="password" id="key-slack" class="field-input field-input-sm" placeholder="Webhook URL..." />
-              <button class="btn-connect" data-integration="slack">Connect</button>
-            </div>
-          </div>
-
-          <div class="integration-item">
-            <div class="integration-info">
-              <span class="integration-name">🔗 Custom Webhook</span>
-              <span class="integration-status" id="webhook-status">Not set</span>
-            </div>
-            <div class="integration-actions">
-              <input type="url" id="key-webhook" class="field-input field-input-sm" placeholder="https://..." />
-              <button class="btn-connect" data-integration="webhook">Save</button>
+            <div class="settings-field">
+              <label class="field-label" for="key-confluence">Confluence token</label>
+              <input type="password" id="key-confluence" class="field-input" placeholder="API token" autocomplete="off" />
             </div>
           </div>
         </div>
 
-        <!-- Data -->
-        <div class="settings-group">
-          <h3 class="settings-group-title">Data & Privacy</h3>
-          <button class="btn-danger-outline" id="btn-clear-data">Clear All Local Data</button>
-          <p class="field-hint">This will delete all history, library, and saved settings.</p>
+        <div class="settings-group panel-card compact-card">
+          <h3 class="settings-group-title">Integration targets</h3>
+          <div class="integration-config-grid">
+            <article class="integration-config-card">
+              <div class="integration-card-head"><strong>Notion</strong><span class="integration-status" id="status-notion">Needs setup</span></div>
+              <input type="text" id="notion-page-id" class="field-input" placeholder="Default page ID" />
+            </article>
+            <article class="integration-config-card">
+              <div class="integration-card-head"><strong>GitHub</strong><span class="integration-status" id="status-github">Needs setup</span></div>
+              <input type="text" id="github-default-repo" class="field-input" placeholder="owner/repo" />
+            </article>
+            <article class="integration-config-card">
+              <div class="integration-card-head"><strong>Jira</strong><span class="integration-status" id="status-jira">Needs setup</span></div>
+              <div class="settings-grid three-col">
+                <input type="text" id="jira-domain" class="field-input" placeholder="your-domain.atlassian.net" />
+                <input type="email" id="jira-email" class="field-input" placeholder="email@example.com" />
+                <input type="text" id="jira-project" class="field-input" placeholder="Project key" />
+              </div>
+            </article>
+            <article class="integration-config-card">
+              <div class="integration-card-head"><strong>Linear</strong><span class="integration-status" id="status-linear">Needs setup</span></div>
+              <input type="text" id="linear-team-id" class="field-input" placeholder="Team ID" />
+            </article>
+            <article class="integration-config-card">
+              <div class="integration-card-head"><strong>Confluence</strong><span class="integration-status" id="status-confluence">Needs setup</span></div>
+              <div class="settings-grid three-col">
+                <input type="text" id="confluence-domain" class="field-input" placeholder="your-domain.atlassian.net" />
+                <input type="email" id="confluence-email" class="field-input" placeholder="email@example.com" />
+                <input type="text" id="confluence-page-id" class="field-input" placeholder="Page ID" />
+              </div>
+            </article>
+            <article class="integration-config-card">
+              <div class="integration-card-head"><strong>Webhook</strong><span class="integration-status" id="status-webhook">Needs setup</span></div>
+              <input type="url" id="webhook-url" class="field-input" placeholder="https://example.com/webhook" />
+            </article>
+          </div>
         </div>
 
-        <!-- Help & Legal -->
-        <div class="settings-group">
-          <h3 class="settings-group-title">Help & Legal</h3>
-          <div class="settings-field">
-            <button class="btn-secondary" id="btn-open-help">Open Help / Docs</button>
-          </div>
-          <div class="settings-field">
-            <button class="btn-secondary" id="btn-open-privacy">View Privacy Policy</button>
-            <p class="field-hint">Opens the Productify privacy policy in a new tab.</p>
+        <div class="settings-group panel-card compact-card">
+          <h3 class="settings-group-title">Data and legal</h3>
+          <div class="settings-actions">
+            <button class="btn-secondary" id="btn-open-help">Open help</button>
+            <button class="btn-secondary" id="btn-open-privacy">Privacy policy</button>
+            <button class="btn-danger-outline" id="btn-clear-data">Clear all local data</button>
           </div>
         </div>
 
-        <button class="btn-primary btn-save-settings" id="btn-save-settings">Save Settings</button>
+        <button class="btn-primary btn-save-settings" id="btn-save-settings">Save settings</button>
       </div>
-    </div><!-- /view-settings -->
+    </div>
+  </div>
 
-  </div><!-- /views-container -->
-
-  <!-- ══════════════ EXPORT MODAL ══════════════ -->
   <div class="modal-overlay" id="modal-export" style="display:none">
-    <div class="modal glass-panel animate-scale-in">
-      <h3 class="modal-title">Export Output</h3>
-      <div class="modal-body">
-        <button class="export-option-btn" id="export-md">
-          <span class="export-ext">.md</span>
-          <span>Markdown file</span>
-        </button>
-        <button class="export-option-btn" id="export-txt">
-          <span class="export-ext">.txt</span>
-          <span>Plain text file</span>
-        </button>
-        <button class="export-option-btn" id="export-json">
-          <span class="export-ext">.json</span>
-          <span>JSON with metadata</span>
-        </button>
+    <div class="modal modal-wide glass-panel animate-scale-in">
+      <h3 class="modal-title">Export output</h3>
+      <div class="modal-body modal-grid">
+        <button class="export-option-btn" id="export-md"><span class="export-ext">.md</span><span>Markdown file</span></button>
+        <button class="export-option-btn" id="export-txt"><span class="export-ext">.txt</span><span>Plain text file</span></button>
+        <button class="export-option-btn" id="export-json"><span class="export-ext">.json</span><span>JSON with metadata</span></button>
       </div>
-      <button class="modal-close" id="btn-close-export">Cancel</button>
+      <button class="modal-close" id="btn-close-export">Close</button>
     </div>
   </div>
 
-  <!-- ══════════════ INTEGRATE MODAL ══════════════ -->
   <div class="modal-overlay" id="modal-integrate" style="display:none">
-    <div class="modal glass-panel animate-scale-in">
-      <h3 class="modal-title">Send To</h3>
-      <div class="modal-body">
-        <button class="integration-option-btn" data-target="notion">
-          <span class="int-icon">📘</span> Notion
-        </button>
-        <button class="integration-option-btn" data-target="github">
-          <span class="int-icon">🐙</span> GitHub Issue
-        </button>
-        <button class="integration-option-btn" data-target="jira">
-          <span class="int-icon">🔷</span> Jira Ticket
-        </button>
-        <button class="integration-option-btn" data-target="linear">
-          <span class="int-icon">📐</span> Linear Issue
-        </button>
-        <button class="integration-option-btn" data-target="slack">
-          <span class="int-icon">💬</span> Slack
-        </button>
-        <button class="integration-option-btn" data-target="webhook">
-          <span class="int-icon">🔗</span> Custom Webhook
-        </button>
+    <div class="modal modal-large glass-panel animate-scale-in">
+      <h3 class="modal-title">Review before send</h3>
+      <div class="modal-body integration-review-layout">
+        <div class="integration-target-list" id="integration-target-list"></div>
+        <div class="integration-preview-card">
+          <p class="panel-kicker">Delivery preview</p>
+          <h4 id="integration-preview-title">Choose a destination</h4>
+          <p id="integration-preview-meta" class="context-meta">Select an integration to inspect the payload.</p>
+          <pre id="integration-preview-body" class="integration-preview-body">No payload preview yet.</pre>
+          <button class="btn-primary" id="btn-confirm-integrate" disabled>Send</button>
+        </div>
       </div>
-      <button class="modal-close" id="btn-close-integrate">Cancel</button>
+      <button class="modal-close" id="btn-close-integrate">Close</button>
     </div>
   </div>
 
-  <!-- ══════════════ TOAST NOTIFICATION ══════════════ -->
   <div class="toast-container" id="toast-container"></div>
 
-  <!-- ══════════════ ERROR STATE ══════════════ -->
   <div class="error-overlay" id="error-overlay" style="display:none">
     <div class="error-card glass-panel animate-shake">
-      <div class="error-icon" id="error-icon">⚠️</div>
+      <div class="error-icon" id="error-icon">!</div>
       <h3 class="error-title" id="error-title">Something went wrong</h3>
       <p class="error-message" id="error-message"></p>
       <div class="error-actions">
@@ -518,8 +448,7 @@
       </div>
     </div>
   </div>
-
-</div><!-- /app -->
+</div>
 
 <script src="../lib/storage.js"></script>
 <script src="../lib/crypto.js"></script>

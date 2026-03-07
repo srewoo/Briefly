@@ -17,9 +17,26 @@ const OFFSCREEN_URL = chrome.runtime.getURL('offscreen/offscreen.html');
 
 let pendingAudioResolve = null;
 let currentTabId = null;
-let lastOutput = null;
-let lastContext = null;
-let lastTranscript = null;
+let pendingRecordingMode = 'default';
+// Per-tab session state
+// Shape: { lastTranscript: string | null, lastOutput: string | null, lastContext: object | null }
+const tabSessions = new Map();
+
+function getOrCreateSession(tabId) {
+  if (tabId == null) {
+    return { lastTranscript: null, lastOutput: null, lastContext: null };
+  }
+  if (!tabSessions.has(tabId)) {
+    tabSessions.set(tabId, { lastTranscript: null, lastOutput: null, lastContext: null });
+  }
+  return tabSessions.get(tabId);
+}
+
+function updateSession(tabId, patch) {
+  if (tabId == null) return;
+  const session = getOrCreateSession(tabId);
+  Object.assign(session, patch);
+}
 
 // ─────────────────────────────────────────────────────────────────
 // LIFECYCLE
@@ -38,8 +55,13 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
         language: 'auto',
         tone: 'auto',
         outputFormat: 'markdown',
-        backendUrl: 'http://localhost:3000',
-        theme: 'dark'
+        theme: 'dark',
+        activeTemplate: 'general_assistant',
+        usePageContext: true,
+        selectionOnly: false,
+        redactSensitive: true,
+        reviewBeforeSend: true,
+        webhookUrl: ''
       }
     });
   }
@@ -84,6 +106,7 @@ async function handleMessage(msg, sender, sendResponse) {
     switch (msg.type) {
       // ── RECORDING ──
       case 'START_RECORDING': {
+        pendingRecordingMode = msg.config?.mode || 'default';
         await ensureOffscreen();
         await chrome.runtime.sendMessage({ type: 'START_RECORDING', config: msg.config });
         sendResponse({ success: true });
@@ -95,6 +118,7 @@ async function handleMessage(msg, sender, sendResponse) {
         break;
       }
       case 'CANCEL_RECORDING': {
+        pendingRecordingMode = 'default';
         await chrome.runtime.sendMessage({ type: 'CANCEL_RECORDING' });
         sendResponse({ success: true });
         break;
@@ -103,35 +127,64 @@ async function handleMessage(msg, sender, sendResponse) {
       // ── FROM OFFSCREEN ──
       case 'RECORDING_STARTED':
         broadcastToPanel({ type: 'RECORDING_STARTED' });
+        sendResponse({ success: true });
         break;
       case 'RECORDING_CANCELLED':
+        pendingRecordingMode = 'default';
         broadcastToPanel({ type: 'RECORDING_CANCELLED' });
+        sendResponse({ success: true });
         break;
       case 'AUDIO_TOO_SHORT':
+        pendingRecordingMode = 'default';
         broadcastToPanel({ type: 'ERROR', error: 'empty_transcript', message: "Didn't catch that" });
+        sendResponse({ success: true });
         break;
       case 'RECORDING_ERROR':
+        pendingRecordingMode = 'default';
         broadcastToPanel({ type: 'ERROR', error: msg.error, message: msg.message });
+        sendResponse({ success: true });
         break;
       case 'WAVEFORM_DATA':
         broadcastToPanel({ type: 'WAVEFORM_DATA', data: msg.data });
+        sendResponse({ success: true });
         break;
       case 'AUDIO_READY': {
         broadcastToPanel({ type: 'STATE_TRANSCRIBING' });
         try {
           const transcript = await transcribeAudio(msg.audioData, msg.mimeType);
-          lastTranscript = transcript;
-          broadcastToPanel({ type: 'TRANSCRIPT_READY', transcript });
           // Get page context
           const context = await getPageContext();
-          lastContext = context;
+          const tabId = currentTabId;
+          broadcastToPanel({ type: 'TRANSCRIPT_READY', transcript });
+          const recordingMode = pendingRecordingMode;
+          pendingRecordingMode = 'default';
+
+          if (recordingMode === 'refine') {
+            const session = getOrCreateSession(tabId);
+            if (session.lastOutput) {
+              updateSession(tabId, { lastContext: session.lastContext || context });
+              await refineOutput({
+                refinement: transcript,
+                previousOutput: session.lastOutput,
+                context: session.lastContext || context,
+                transcript: session.lastTranscript,
+                tabId
+              });
+              break;
+            }
+          }
+
+          updateSession(tabId, { lastTranscript: transcript, lastContext: context });
           // Local intent pre-classification
           const localIntent = self.IntentClassifier?.classify(transcript) || { primary_intent: 'custom', confidence: 0.5 };
           broadcastToPanel({ type: 'INTENT_LOCAL', intent: localIntent });
           // Full generation
-          await processTranscript({ transcript, context, localIntent });
+          await processTranscript({ transcript, context, localIntent, tabId });
+          sendResponse({ success: true });
         } catch (err) {
+          pendingRecordingMode = 'default';
           broadcastToPanel({ type: 'ERROR', error: 'api_error', message: err.message });
+          sendResponse({ success: false, error: err.message });
         }
         break;
       }
@@ -141,19 +194,32 @@ async function handleMessage(msg, sender, sendResponse) {
         broadcastToPanel({ type: 'STATE_GENERATING' });
         try {
           const context = await getPageContext();
-          lastContext = context;
-          await processTranscript({ transcript: msg.text, context, localIntent: null, overrideIntent: msg.intent });
+          const tabId = msg.tabId ?? currentTabId;
+          updateSession(tabId, { lastTranscript: msg.text, lastContext: context });
+          await processTranscript({ transcript: msg.text, context, localIntent: null, overrideIntent: msg.intent, tabId });
+          sendResponse({ success: true });
         } catch (err) {
           broadcastToPanel({ type: 'ERROR', error: 'api_error', message: err.message });
+          sendResponse({ success: false, error: err.message });
         }
         break;
       }
       case 'REFINE_OUTPUT': {
         broadcastToPanel({ type: 'STATE_GENERATING' });
         try {
-          await refineOutput({ refinement: msg.refinement, previousOutput: lastOutput, context: lastContext, transcript: lastTranscript });
+          const tabId = msg.tabId ?? currentTabId;
+          const session = getOrCreateSession(tabId);
+          await refineOutput({
+            refinement: msg.refinement,
+            previousOutput: session.lastOutput,
+            context: session.lastContext,
+            transcript: session.lastTranscript,
+            tabId
+          });
+          sendResponse({ success: true });
         } catch (err) {
           broadcastToPanel({ type: 'ERROR', error: 'api_error', message: err.message });
+          sendResponse({ success: false, error: err.message });
         }
         break;
       }
@@ -162,7 +228,9 @@ async function handleMessage(msg, sender, sendResponse) {
       case 'ROUTE_OUTPUT': {
         broadcastToPanel({ type: 'STATE_ROUTING', target: msg.target });
         try {
-          const result = await self.OutputRouter.route(msg.target, lastOutput, lastContext, currentTabId);
+          const tabId = msg.tabId ?? currentTabId;
+          const session = getOrCreateSession(tabId);
+          const result = await self.OutputRouter.route(msg.target, session.lastOutput, session.lastContext, tabId);
           broadcastToPanel({ type: 'ROUTE_SUCCESS', result, target: msg.target });
           sendResponse({ success: true, result });
         } catch (err) {
@@ -194,6 +262,15 @@ async function handleMessage(msg, sender, sendResponse) {
       case 'GET_PAGE_CONTEXT': {
         const context = await getPageContext();
         sendResponse({ success: true, context });
+        break;
+      }
+      case 'SYNC_SESSION': {
+        updateSession(msg.tabId ?? currentTabId, {
+          lastTranscript: msg.transcript ?? null,
+          lastOutput: msg.output ?? null,
+          lastContext: msg.context ?? null
+        });
+        sendResponse({ success: true });
         break;
       }
 
@@ -263,7 +340,7 @@ async function transcribeAudio(audioDataUrl, mimeType) {
   }
 }
 
-async function processTranscript({ transcript, context, localIntent, overrideIntent }) {
+async function processTranscript({ transcript, context, localIntent, overrideIntent, tabId }) {
   const { settings = {} } = await chrome.storage.local.get('settings');
   const openaiKey = await getDecryptedKey('openai');
 
@@ -276,9 +353,10 @@ async function processTranscript({ transcript, context, localIntent, overrideInt
     const intent = overrideIntent || localIntent?.primary_intent || 'custom';
     const tone = settings.tone || 'auto';
     const outputFormat = settings.outputFormat || 'markdown';
+    const templateId = settings.activeTemplate || 'general_assistant';
 
-    const systemPrompt = buildSystemPrompt(intent, tone, outputFormat);
-    const userMessage = buildUserMessage(transcript, context);
+    const systemPrompt = buildSystemPrompt(intent, tone, outputFormat, templateId);
+    const userMessage = buildUserMessage(transcript, context, settings);
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -310,12 +388,13 @@ async function processTranscript({ transcript, context, localIntent, overrideInt
     if (fullOutput) {
       broadcastToPanel({ type: 'STREAM_CHUNK', text: fullOutput });
       broadcastToPanel({ type: 'GENERATION_COMPLETE', output: fullOutput });
-      lastOutput = fullOutput;
+      updateSession(tabId, { lastOutput: fullOutput });
       await saveToHistory({
         transcript,
         output: fullOutput,
         context,
-        intent: intent
+        intent: intent,
+        templateId
       });
     }
   } catch (err) {
@@ -325,7 +404,7 @@ async function processTranscript({ transcript, context, localIntent, overrideInt
   }
 }
 
-async function refineOutput({ refinement, previousOutput, context, transcript }) {
+async function refineOutput({ refinement, previousOutput, context, transcript, tabId }) {
   const openaiKey = await getDecryptedKey('openai');
   if (!openaiKey) throw new Error('OpenAI API key required for refinement.');
 
@@ -359,14 +438,14 @@ async function refineOutput({ refinement, previousOutput, context, transcript })
   if (fullOutput) {
     broadcastToPanel({ type: 'STREAM_CHUNK', text: fullOutput });
     broadcastToPanel({ type: 'GENERATION_COMPLETE', output: fullOutput });
-    lastOutput = fullOutput;
+    updateSession(tabId, { lastOutput: fullOutput });
   }
 }
 
 // ─────────────────────────────────────────────────────────────────
 // LOCAL PROMPTS (client-side)
 // ─────────────────────────────────────────────────────────────────
-function buildSystemPrompt(intent, tone, outputFormat) {
+function buildSystemPrompt(intent, tone, outputFormat, templateId) {
   const baseByIntent = {
     summarize: 'You summarize content into clear, concise bullet points and sections.',
     prompt_generation: 'You turn user ideas into high quality, copy-pastable prompts for powerful LLMs.',
@@ -383,6 +462,7 @@ function buildSystemPrompt(intent, tone, outputFormat) {
   };
 
   const base = baseByIntent[intent] || baseByIntent.custom;
+  const templateNote = buildTemplateInstruction(templateId);
   const toneNote = tone && tone !== 'auto' ? ` Tone: ${tone}.` : '';
   const formatNote =
     outputFormat === 'plain'
@@ -391,30 +471,107 @@ function buildSystemPrompt(intent, tone, outputFormat) {
       ? ' Prefer structured output with headings, bullet lists, and tables where helpful.'
       : ' Respond in well-formatted Markdown suitable for docs or notes.';
 
-  return `${base}${toneNote}${formatNote}`;
+  return `${base}${templateNote}${toneNote}${formatNote}`;
 }
 
-function buildUserMessage(transcript, context) {
+function buildTemplateInstruction(templateId) {
+  const templateInstructions = {
+    general_assistant: ' Act like a strong browser copilot. Use the page context when it improves the answer and call out assumptions when context is incomplete.',
+    bug_report: ' Produce a bug report with sections for summary, impact, steps to reproduce, expected result, actual result, likely cause, environment, and open questions.',
+    pr_review: ' Review the material like a pull request. Lead with concrete findings, risks, regressions, and missing tests. Keep summaries brief.',
+    test_plan: ' Produce a QA test plan with objectives, happy paths, edge cases, negative cases, automation candidates, and data/setup needs.',
+    product_spec: ' Produce a product spec with problem, users, goals, non-goals, flows, edge cases, dependencies, launch risks, and success metrics.',
+    release_notes: ' Produce release notes with a crisp headline, customer-facing highlights, operational notes, risks, and rollout/follow-up items.',
+    customer_reply: ' Draft a concise, empathetic customer-facing response with next steps and a clear ask if more information is needed.'
+  };
+
+  return templateInstructions[templateId] || templateInstructions.general_assistant;
+}
+
+function buildUserMessage(transcript, context, settings = {}) {
+  const sanitizedContext = sanitizePromptContext(context, settings);
   const parts = [`User voice command or input:\n"${transcript}"`];
-  if (context?.selectedText) {
-    parts.push(`\nSelected text on page:\n"""\n${context.selectedText.slice(0, 1500)}\n"""`);
+  if (sanitizedContext?.selectedText) {
+    parts.push(`\nSelected text on page:\n"""\n${sanitizedContext.selectedText.slice(0, 1500)}\n"""`);
   }
-  if (context?.visibleText && !context.selectedText) {
-    parts.push(`\nVisible page content (truncated):\n${context.visibleText.slice(0, 2000)}`);
+  if (sanitizedContext?.visibleText && !sanitizedContext.selectedText) {
+    parts.push(`\nVisible page content (truncated):\n${sanitizedContext.visibleText.slice(0, 2000)}`);
   }
-  if (context?.codeBlocks?.length) {
-    const code = context.codeBlocks.map(b => `[${b.lang}]\n${b.code}`).join('\n\n');
+  if (sanitizedContext?.codeBlocks?.length) {
+    const code = sanitizedContext.codeBlocks.map(b => `[${b.lang}]\n${b.code}`).join('\n\n');
     parts.push(`\nCode snippets on page:\n\`\`\`\n${code.slice(0, 2000)}\n\`\`\``);
   }
-  if (context?.headings?.length) {
-    parts.push(`\nPage headings: ${context.headings.map(h => h.text).join(' > ')}`);
+  if (sanitizedContext?.headings?.length) {
+    parts.push(`\nPage headings: ${sanitizedContext.headings.map(h => h.text).join(' > ')}`);
   }
-  if (context?.pageType && context.pageType !== 'general') {
-    parts.push(`\nDetected page type: ${context.pageType}`);
+  if (sanitizedContext?.formFields?.length) {
+    const fieldSummary = sanitizedContext.formFields
+      .map(field => `${field.label || field.type}: ${field.value}`)
+      .join(' | ');
+    parts.push(`\nRelevant form fields: ${fieldSummary.slice(0, 1200)}`);
   }
-  if (context?.pageTitle) parts.push(`\nPage title: ${context.pageTitle}`);
-  if (context?.url) parts.push(`\nURL: ${context.url}`);
+  if (sanitizedContext?.pageType && sanitizedContext.pageType !== 'general') {
+    parts.push(`\nDetected page type: ${sanitizedContext.pageType}`);
+  }
+  if (sanitizedContext?.pageTitle) parts.push(`\nPage title: ${sanitizedContext.pageTitle}`);
+  if (sanitizedContext?.url) parts.push(`\nURL: ${sanitizedContext.url}`);
+  if (settings.redactSensitive) {
+    parts.push('\nSensitive strings have been redacted before sending this context.');
+  }
   return parts.join('\n');
+}
+
+function sanitizePromptContext(context = {}, settings = {}) {
+  const usePageContext = settings.usePageContext !== false;
+  const selectionOnly = settings.selectionOnly === true;
+  const redactSensitive = settings.redactSensitive !== false;
+
+  if (!usePageContext) {
+    return {};
+  }
+
+  const sanitized = {
+    pageTitle: context.pageTitle || '',
+    url: context.url || '',
+    pageType: context.pageType || 'general',
+    selectedText: context.selectedText || '',
+    visibleText: selectionOnly ? '' : (context.visibleText || ''),
+    codeBlocks: selectionOnly ? [] : (context.codeBlocks || []),
+    headings: selectionOnly ? [] : (context.headings || []),
+    formFields: selectionOnly ? [] : (context.formFields || [])
+  };
+
+  if (selectionOnly && !sanitized.selectedText) {
+    sanitized.visibleText = (context.visibleText || '').slice(0, 1200);
+  }
+
+  return redactSensitive ? redactContextObject(sanitized) : sanitized;
+}
+
+function redactContextObject(value) {
+  if (typeof value === 'string') {
+    return redactSensitiveText(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(redactContextObject);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, val]) => [key, redactContextObject(val)]));
+  }
+
+  return value;
+}
+
+function redactSensitiveText(text) {
+  if (!text) return text;
+
+  return text
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted-email]')
+    .replace(/\b(sk|rk|pk|ghp|gho|ghu|AIza|xoxb|xoxp|xoxe|xoxr|lin_api)_[A-Za-z0-9_\-]{8,}\b/g, '[redacted-key]')
+    .replace(/\b(?:Bearer\s+)?[A-Za-z0-9-_]{24,}\.[A-Za-z0-9-_]{12,}\.[A-Za-z0-9-_]{12,}\b/g, '[redacted-token]')
+    .replace(/\b\d{12,19}\b/g, '[redacted-number]');
 }
 
 async function transcribeWithOpenAI(audioBlob, apiKey, language, signal) {

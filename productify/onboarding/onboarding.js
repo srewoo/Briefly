@@ -66,11 +66,7 @@ function nextStep() {
 
 async function finish() {
   await chrome.storage.local.set({ firstRunDone: true });
-  // Close this tab, open the side panel on current tab
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) await chrome.sidePanel.open({ tabId: tab.id });
-  } catch (_) {}
+  // Best effort: onboarding usually lives in its own tab, so just close it.
   window.close();
 }
 
@@ -119,9 +115,7 @@ async function validateKey() {
   status.className = 'key-status validating';
 
   try {
-    const backendUrl = $('ob-backend-url').value.trim() || 'http://localhost:3000';
-    const res = await fetch(`${backendUrl}/health`);
-    // Validate key by making a minimal request
+    // Validate key by making a minimal request to OpenAI directly.
     const testRes = await fetch('https://api.openai.com/v1/models', {
       headers: { 'Authorization': `Bearer ${key}` }
     });
@@ -134,12 +128,9 @@ async function validateKey() {
       status.className = 'key-status valid';
       // Store via service worker
       await chrome.runtime.sendMessage({ type: 'STORE_KEYS', keys: { openai: key } });
-      // Save backend URL
-      const { settings = {} } = await chrome.storage.local.get('settings');
-      await chrome.storage.local.set({ settings: { ...settings, backendUrl } });
     }
   } catch (err) {
-    status.textContent = `⚠️ Couldn't reach backend (${err.message}). Key saved anyway.`;
+    status.textContent = `⚠️ Couldn't validate the key (${err.message}). Key saved anyway.`;
     status.className = 'key-status invalid';
     // Still try to save the key
     if (key.startsWith('sk-')) {

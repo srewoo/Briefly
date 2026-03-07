@@ -63,6 +63,7 @@
     <p>The extension stores the following data <strong>only in your browser&apos;s local storage</strong>:</p>
     <ul>
       <li>Settings such as chosen STT provider, language, tone, output format, and theme.</li>
+      <li>Workflow preferences such as the active recipe, page-context usage, selection-only mode, and redaction settings.</li>
       <li>History of transcripts and generated outputs (so you can restore past runs).</li>
       <li>Prompt library items you star/save.</li>
       <li>Encrypted API keys for third‑party services (e.g. OpenAI, Google STT, ElevenLabs, Notion, GitHub, Jira, Linear, Slack, webhook URL).</li>
@@ -81,10 +82,12 @@
     <ul>
       <li>The audio recording (for Speech‑to‑Text).</li>
       <li>The transcript text.</li>
+      <li>Any typed request you enter directly into the command composer.</li>
       <li>Optional page context, such as page title, URL, selected text, visible text, code blocks, headings, and limited structured data.</li>
       <li>Your chosen intent (e.g. summarize, documentation, testing) and output preferences.</li>
     </ul>
     <p>These requests are made directly from your browser to providers such as OpenAI, Google Speech‑to‑Text, or ElevenLabs using API keys you supply in the extension settings.</p>
+    <p>If redaction is enabled, Productify attempts to remove common secrets such as API keys, tokens, email addresses, and long numeric strings before sending page context for generation.</p>
 
     <h2>API keys and credentials</h2>
     <ul>
@@ -123,4 +126,3 @@
   </main>
 </body>
 </html>
-

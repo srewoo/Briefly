@@ -74,6 +74,9 @@
         "mac": "Command+Shift+H"
       },
       "description": "Toggle history panel"
+    },
+    "retry-last": {
+      "description": "Retry last Productify request"
     }
   },
   "web_accessible_resources": [

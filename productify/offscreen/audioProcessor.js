@@ -14,6 +14,12 @@
   let audioChunks = [];
   let waveformInterval = null;
 
+  function notifyBackground(message) {
+    // Offscreen events are fire-and-forget; avoid surfacing noise if the
+    // service worker is restarting while we emit telemetry-like updates.
+    chrome.runtime.sendMessage(message).catch(() => {});
+  }
+
   // ──────────────────────────────────────────────────────
   // Message listener from service worker
   // ──────────────────────────────────────────────────────
@@ -76,9 +82,9 @@
       streamWaveform();
 
       // Notify service worker that recording started
-      chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
+      notifyBackground({ type: 'RECORDING_STARTED' });
     } catch (err) {
-      chrome.runtime.sendMessage({
+      notifyBackground({
         type: 'RECORDING_ERROR',
         error: err.name === 'NotAllowedError' ? 'mic_denied' : 'mic_error',
         message: err.message
@@ -110,7 +116,7 @@
     }
     audioChunks = [];
     cleanupAudio();
-    chrome.runtime.sendMessage({ type: 'RECORDING_CANCELLED' });
+    notifyBackground({ type: 'RECORDING_CANCELLED' });
   }
 
   async function processAndSendAudio(mimeType) {
@@ -121,7 +127,7 @@
 
     if (blob.size < 1000) {
       // Too small — likely silence
-      chrome.runtime.sendMessage({ type: 'AUDIO_TOO_SHORT' });
+      notifyBackground({ type: 'AUDIO_TOO_SHORT' });
       return null;
     }
 
@@ -129,7 +135,7 @@
     const reader = new FileReader();
     reader.readAsDataURL(blob);
     reader.onloadend = () => {
-      chrome.runtime.sendMessage({
+      notifyBackground({
         type: 'AUDIO_READY',
         audioData: reader.result,
         mimeType: blob.type,
@@ -153,7 +159,7 @@
       analyserNode.getByteTimeDomainData(dataArray);
       // Send compact waveform sample (every 4th point)
       const sample = Array.from(dataArray.filter((_, i) => i % 4 === 0));
-      chrome.runtime.sendMessage({
+      notifyBackground({
         type: 'WAVEFORM_DATA',
         data: sample
       });

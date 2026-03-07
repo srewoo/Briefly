@@ -75,15 +75,16 @@
   <main class="container">
     <span class="badge">Productify · Help</span>
     <h1>Using Productify</h1>
-    <p>Productify is a voice‑first AI side panel for your browser. Speak your ideas, tasks, or requests and it turns them into structured AI output you can copy, refine, and send into your tools.</p>
+    <p>Productify is an AI side panel for your browser. You can speak or type requests, inspect the captured page context, and turn that into structured output you can copy, refine, export, save, or route into your tools.</p>
 
     <h2>Basic flow</h2>
     <div class="section-card">
       <p><strong>1. Open the side panel</strong> – click the Productify icon or use the keyboard shortcut defined in Chrome.</p>
-      <p><strong>2. Record</strong> – click the mic button or hold <span class="kbd">Space</span> while the panel is focused, then speak.</p>
-      <p><strong>3. Transcribe</strong> – audio is sent directly from the extension to your selected Speech‑to‑Text provider (OpenAI, Google, or ElevenLabs).</p>
-      <p><strong>4. Generate</strong> – the transcript plus page context is sent directly from the extension to an LLM (OpenAI), which produces the result.</p>
-      <p><strong>5. Use the output</strong> – copy it, refine it, export it, or send it to Notion, GitHub, Jira, Linear, Slack, or a webhook.</p>
+      <p><strong>2. Capture or type</strong> – click the mic button or hold <span class="kbd">Space</span> while the panel is focused, or type directly into the command composer.</p>
+      <p><strong>3. Pick a recipe</strong> – choose a workflow such as bug report, PR review, test plan, spec, release notes, or customer reply.</p>
+      <p><strong>4. Transcribe</strong> – if you used voice, audio is sent directly from the extension to your selected Speech-to-Text provider (OpenAI, Google, or ElevenLabs).</p>
+      <p><strong>5. Generate</strong> – the request plus selected page context is sent directly from the extension to an LLM (OpenAI), which produces the result.</p>
+      <p><strong>6. Use the output</strong> – copy it, refine it, export it, save it to the library, or use <strong>Review &amp; Send</strong> to route it to Notion, GitHub, Jira, Linear, Slack, Confluence, or a webhook.</p>
     </div>
 
     <h2>Turning ideas into prompts and specs</h2>
@@ -103,7 +104,7 @@
     </ul>
 
     <h2>Integrations</h2>
-    <p>In <strong>Settings → Integrations</strong> you can provide API keys or URLs for Notion, GitHub, Jira, Linear, Slack, or a custom webhook. Once configured, the <strong>Send</strong> button lets you route the latest output into those tools.</p>
+    <p>In <strong>Settings → Integrations</strong> you can provide the tokens and target IDs needed for Notion, GitHub, Jira, Linear, Slack, Confluence, or a custom webhook. Once configured, the <strong>Review &amp; Send</strong> flow lets you preview the payload and route the latest output into those tools.</p>
 
     <h2>Microphone and permissions</h2>
     <ul>
@@ -121,4 +122,3 @@
   </main>
 </body>
 </html>
-

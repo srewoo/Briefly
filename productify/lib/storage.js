@@ -63,8 +63,13 @@ const Storage = {
       language: 'auto',
       tone: 'auto',
       outputFormat: 'markdown',
-      backendUrl: 'http://localhost:3000',
       theme: 'dark',
+      activeTemplate: 'general_assistant',
+      usePageContext: true,
+      selectionOnly: false,
+      redactSensitive: true,
+      reviewBeforeSend: true,
+      webhookUrl: '',
       ...settings
     };
   },

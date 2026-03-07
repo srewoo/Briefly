@@ -60,7 +60,7 @@ const Markdown = {
     tmp.innerHTML = html;
     
     // Remove dangerous elements
-    const dangerous = tmp.querySelectorAll('script, iframe, object, embed, form, input, button');
+    const dangerous = tmp.querySelectorAll('script, iframe, object, embed, form, input, button, style, link, meta');
     dangerous.forEach(el => el.remove());
     
     // Remove event handler attributes
@@ -68,8 +68,13 @@ const Markdown = {
     allEls.forEach(el => {
       Array.from(el.attributes).forEach(attr => {
         if (attr.name.startsWith('on')) el.removeAttribute(attr.name);
+        if (attr.name === 'style') el.removeAttribute(attr.name);
         if (attr.name === 'href' && attr.value.startsWith('javascript:')) {
           el.setAttribute('href', '#');
+        }
+        if (attr.name === 'src') {
+          const safeSrc = /^(https?:|data:image\/|chrome-extension:)/i.test(attr.value);
+          if (!safeSrc) el.removeAttribute('src');
         }
       });
       // Open links in new tab safely
