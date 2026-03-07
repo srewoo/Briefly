@@ -4,6 +4,9 @@
   "private": true,
   "description": "Briefly Chrome extension - voice-powered AI assistant.",
   "scripts": {
+    "check": "node scripts/check.mjs",
+    "test:unit": "node --test tests/*.test.mjs",
+    "test": "npm run check && npm run test:unit",
     "build": "npm run zip",
     "zip": "rm -rf dist && mkdir -p dist && cd Briefly && zip -r ../dist/briefly.zip ."
   },

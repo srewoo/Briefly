@@ -55,6 +55,7 @@
       structuredData: getStructuredData(),
       formFields: getFormContext(),
       imageAltTexts: getImageAlts(),
+      domainArtifacts: getDomainArtifacts(pageType),
       domainContext: getDomainContext(),
       extractedAt: Date.now()
     };
@@ -235,6 +236,29 @@
     return { tool: null, domain: host };
   }
 
+  function getDomainArtifacts(pageType) {
+    switch (pageType) {
+      case 'github-pr':
+        return extractGitHubPrArtifacts();
+      case 'github-code':
+        return extractGitHubCodeArtifacts();
+      case 'github-issue':
+        return extractGitHubIssueArtifacts();
+      case 'jira-ticket':
+        return extractJiraArtifacts();
+      case 'confluence-doc':
+        return extractConfluenceArtifacts();
+      case 'notion-page':
+        return extractNotionArtifacts();
+      case 'slack':
+        return extractSlackArtifacts();
+      case 'linear-issue':
+        return extractLinearArtifacts();
+      default:
+        return {};
+    }
+  }
+
   /** Naive code language detection from element classes */
   function detectCodeLanguage(el) {
     const cls = (el.className + ' ' + (el.querySelector('code')?.className || '')).toLowerCase();
@@ -377,6 +401,390 @@
     return lineCount >= 2 || codeIndicators.some(token => text.includes(token));
   }
 
+  function extractGitHubPrArtifacts() {
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    const pullIndex = pathParts.indexOf('pull');
+    return compactObject({
+      repository: getGitHubRepoFromPath(),
+      pullNumber: pullIndex >= 0 ? pathParts[pullIndex + 1] || '' : '',
+      pullRequestTitle: firstText([
+        '[data-testid="issue-title"]',
+        '.js-issue-title',
+        '.gh-header-title .js-issue-title',
+        '.markdown-title'
+      ]),
+      state: firstText(['[data-testid="issue-state"]', '.State']),
+      baseBranch: firstText(['.base-ref', '[data-testid="base-ref"]']),
+      headBranch: firstText(['.head-ref', '[data-testid="head-ref"]']),
+      changedFiles: uniqueTexts([
+        '[data-path]',
+        '.file-header [title]',
+        '.file-info a',
+        '[data-testid="changed-file-header"]'
+      ], { max: 20, attr: 'data-path' }),
+      labels: uniqueTexts(['[data-testid="issue-labels"] a', '.IssueLabel', '.js-issue-labels a'], { max: 10 }),
+      reviewers: uniqueTexts(['[aria-label*="Reviewers"] img[alt]', '[data-testid="reviewers"] img[alt]'], { max: 8, attr: 'alt' }),
+      checks: uniqueTexts(['[data-testid="mergebox"] [title]', '[data-testid="status-check-rollup"]'], { max: 8, maxLength: 180 }),
+      reviewComments: uniqueTexts([
+        '.review-comment .comment-body',
+        '.js-comment-body',
+        '[data-testid="comment-body"]',
+        '.comment-body.markdown-body'
+      ], { max: 8 }),
+      reviewThreads: document.querySelectorAll('.js-resolvable-thread-container, [data-testid="review-thread"]').length || 0
+    });
+  }
+
+  function extractGitHubCodeArtifacts() {
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    const filePathIndex = pathParts.indexOf('blob');
+
+    return compactObject({
+      repository: getGitHubRepoFromPath(),
+      branch: filePathIndex >= 0 ? pathParts[filePathIndex + 1] || '' : '',
+      filePath: filePathIndex >= 0 ? pathParts.slice(filePathIndex + 2).join('/') : '',
+      fileName: filePathIndex >= 0 ? pathParts[pathParts.length - 1] || '' : '',
+      codeSymbolCount: document.querySelectorAll('.react-code-text, .blob-code-inner, td.blob-code').length || 0
+    });
+  }
+
+  function extractGitHubIssueArtifacts() {
+    return compactObject({
+      repository: getGitHubRepoFromPath(),
+      issueTitle: firstText(['[data-testid="issue-title"]', '.js-issue-title']),
+      state: firstText(['[data-testid="issue-state"]', '.State']),
+      comments: uniqueTexts(['.js-comment-body', '[data-testid="comment-body"]'], { max: 8 })
+    });
+  }
+
+  function extractJiraArtifacts() {
+    return compactObject({
+      issueKey: firstText([
+        '[data-testid="issue.views.issue-base.foundation.breadcrumbs.current-issue.item"]',
+        '[data-testid="issue.views.issue-base.foundation.key-val"]',
+        '[data-testid="issue-key"]'
+      ]) || matchIssueKeyFromUrl(),
+      summary: firstText(['[data-testid="issue.views.issue-base.foundation.summary.heading"]', 'h1']),
+      status: firstText([
+        '[data-testid="issue.views.issue-base.foundation.status.status-field-wrapper"]',
+        '[data-testid="issue-status-field"]'
+      ]),
+      priority: firstText([
+        '[data-testid="issue.views.issue-base.foundation.priority.priority-field-wrapper"]',
+        '[data-testid="issue-priority-field"]'
+      ]),
+      assignee: firstText([
+        '[data-testid="issue.views.issue-base.foundation.people.assignee"]',
+        '[data-testid="issue-field-assignee"]'
+      ]),
+      reporter: firstText([
+        '[data-testid="issue.views.issue-base.foundation.people.reporter"]',
+        '[data-testid="issue-field-reporter"]'
+      ]),
+      labels: uniqueTexts([
+        '[data-testid="issue.views.issue-base.foundation.labels.labels-field-wrapper"] span',
+        '[data-testid="issue-field-labels"] span'
+      ], { max: 10 }),
+      description: firstText([
+        '[data-testid="issue.views.field.rich-text.description"]',
+        '[data-testid="issue.views.issue-base.foundation.description.description-field"]'
+      ], 500),
+      comments: uniqueTexts([
+        '[data-testid="issue.activity.comment"]',
+        '[data-testid="comment-body"]'
+      ], { max: 6, maxLength: 240 }),
+      commentCount: document.querySelectorAll('[data-testid="issue.activity.comment"], [data-testid="comment-body"]').length || 0
+    });
+  }
+
+  function extractSlackArtifacts() {
+    return compactObject({
+      workspace: firstText(['[data-qa="workspace_name"]', '[data-testid="team-name"]']),
+      channel: firstText(['[data-qa="channel_name"]', '[data-qa="channel_header_title"]', 'h1']),
+      threadTitle: firstText(['[data-qa="thread_title"]', '[data-qa="message_input_label"]']),
+      composerPlaceholder: firstText(['[data-qa="message_input"]', '[data-qa="message_input_label"]']),
+      recentMessages: uniqueTexts([
+        '[data-qa="message-text"]',
+        '.p-rich_text_section',
+        '[data-qa="virtual-list-item"]'
+      ], { max: 8, maxLength: 220 }),
+      participantNames: uniqueTexts([
+        '[data-qa="message_sender_name"]',
+        '[data-qa="virtual-list-item"] [data-qa="message_sender_name"]'
+      ], { max: 8, maxLength: 80 })
+    });
+  }
+
+  function extractLinearArtifacts() {
+    return compactObject({
+      issueId: matchIssueKeyFromUrl(),
+      title: firstText(['h1', '[data-testid="issue-title"]']),
+      status: firstText(['[data-testid="issue-status"]', '[aria-label="Status"]']),
+      assignee: firstText(['[data-testid="issue-assignee"]', '[aria-label="Assignee"]']),
+      priority: firstText(['[data-testid="issue-priority"]', '[aria-label="Priority"]']),
+      project: firstText(['[data-testid="issue-project"]', '[aria-label="Project"]']),
+      comments: uniqueTexts(['[data-testid="comment-body"]', 'article'], { max: 5, maxLength: 220 })
+    });
+  }
+
+  function extractConfluenceArtifacts() {
+    return compactObject({
+      space: firstText(['[data-testid="space-page-title"]', '.aui-page-panel-content h1']),
+      breadcrumbTrail: uniqueTexts(['nav[aria-label="Breadcrumb"] a', '.ia-secondary-container a'], { max: 8, maxLength: 120 }),
+      sectionHeadings: uniqueTexts(['#main-content h1', '#main-content h2', '#main-content h3'], { max: 12, maxLength: 120 }),
+      calloutTitles: uniqueTexts(['.confluence-information-macro .title', '.aui-message-title'], { max: 6 }),
+      tableCount: document.querySelectorAll('#main-content table').length || 0
+    });
+  }
+
+  function extractNotionArtifacts() {
+    return compactObject({
+      workspace: firstText(['[data-testid="workspace-title"]', '[data-testid="breadcrumbs"]']),
+      pageTitle: firstText(['main h1', '[data-content-editable-leaf="true"] h1', '[placeholder="Untitled"]']),
+      breadcrumbs: uniqueTexts(['nav[aria-label="Breadcrumb"] a', '[data-testid="breadcrumbs"] a'], { max: 8, maxLength: 120 }),
+      toggleHeadings: uniqueTexts(['main h1', 'main h2', 'main h3'], { max: 12, maxLength: 120 }),
+      todoItems: uniqueTexts(['[role="checkbox"] + div', '[data-testid="checkbox"] + div'], { max: 8, maxLength: 160 }),
+      databasePropertyCount: document.querySelectorAll('[data-testid="property-row"], [data-block-id]').length || 0
+    });
+  }
+
+  function getGitHubRepoFromPath() {
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : '';
+  }
+
+  function matchIssueKeyFromUrl() {
+    const match = window.location.href.match(/([A-Z][A-Z0-9]+-\d+)/);
+    return match ? match[1] : '';
+  }
+
+  function firstText(selectors, maxLength = 160) {
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      const text = normalizeSnippet(node?.innerText || node?.textContent || '');
+      if (text) return text.slice(0, maxLength);
+    }
+    return '';
+  }
+
+  function uniqueTexts(selectors, options = {}) {
+    const {
+      max = 10,
+      maxLength = 160,
+      attr = ''
+    } = options;
+    const seen = new Set();
+    const values = [];
+
+    selectors.forEach(selector => {
+      document.querySelectorAll(selector).forEach(node => {
+        if (values.length >= max) return;
+        const raw = attr ? node.getAttribute(attr) : (node.innerText || node.textContent || '');
+        const text = normalizeSnippet(raw);
+        if (!text || seen.has(text)) return;
+        seen.add(text);
+        values.push(text.slice(0, maxLength));
+      });
+    });
+
+    return values;
+  }
+
+  function normalizeSnippet(text) {
+    return String(text || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function compactObject(value) {
+    return Object.fromEntries(
+      Object.entries(value || {}).filter(([, current]) => {
+        if (Array.isArray(current)) return current.length > 0;
+        return current !== null && current !== undefined && current !== '';
+      })
+    );
+  }
+
+  function getPageActionTargets() {
+    const selector = [
+      'textarea',
+      'input[type="text"]',
+      'input[type="search"]',
+      'input[type="email"]',
+      'input[type="url"]',
+      'input:not([type])',
+      '[contenteditable="true"]',
+      '[role="textbox"]'
+    ].join(', ');
+
+    const activeElement = document.activeElement;
+    const targets = Array.from(document.querySelectorAll(selector))
+      .filter(node => isEditableNode(node) && isVisibleNode(node))
+      .map((node, index) => {
+        const actionId = getOrAssignActionId(node, index);
+        const value = getEditableValue(node);
+        const submitActions = getSubmitActionsForNode(node);
+        return {
+          actionId,
+          label: describeEditableNode(node),
+          tagName: node.tagName.toLowerCase(),
+          hasValue: Boolean(value.trim()),
+          valuePreview: normalizeSnippet(value).slice(0, 140),
+          active: node === activeElement,
+          submitActions
+        };
+      });
+
+    targets.sort((left, right) => Number(right.active) - Number(left.active));
+    return targets.slice(0, 6);
+  }
+
+  function applyOutputToPage({ actionId, text, mode = 'auto', submitActionId = '' }) {
+    const node = document.querySelector(`[data-briefly-action-id="${CSS.escape(actionId)}"]`);
+    if (!node || !isEditableNode(node)) {
+      throw new Error('The selected page field is no longer available.');
+    }
+
+    const currentValue = getEditableValue(node);
+    const nextValue = resolveAppliedValue(currentValue, text, mode);
+
+    node.focus();
+    if (isTextInput(node)) {
+      node.value = nextValue;
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      node.textContent = nextValue;
+      node.dispatchEvent(new InputEvent('input', { bubbles: true, data: text, inputType: 'insertText' }));
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    let triggeredActionLabel = '';
+    if (submitActionId) {
+      const actionNode = document.querySelector(`[data-briefly-submit-id="${CSS.escape(submitActionId)}"]`);
+      if (!actionNode || !isVisibleNode(actionNode)) {
+        throw new Error('The selected submit action is no longer available.');
+      }
+      triggeredActionLabel = describeSubmitAction(actionNode);
+      actionNode.click();
+    }
+
+    return {
+      actionId,
+      label: describeEditableNode(node),
+      appliedMode: currentValue.trim() ? (mode === 'replace' ? 'replace' : 'append') : 'replace',
+      triggeredActionLabel
+    };
+  }
+
+  function resolveAppliedValue(currentValue, text, mode) {
+    const safeCurrent = currentValue || '';
+    const safeText = text || '';
+    if (mode === 'replace') return safeText;
+    if (mode === 'append') {
+      return safeCurrent.trim() ? `${safeCurrent.replace(/\s+$/g, '')}\n\n${safeText}` : safeText;
+    }
+    return safeCurrent.trim() ? `${safeCurrent.replace(/\s+$/g, '')}\n\n${safeText}` : safeText;
+  }
+
+  function getOrAssignActionId(node, index) {
+    if (!node.dataset.brieflyActionId) {
+      node.dataset.brieflyActionId = `briefly_${Date.now().toString(36)}_${index}`;
+    }
+    return node.dataset.brieflyActionId;
+  }
+
+  function getOrAssignSubmitActionId(node, index) {
+    if (!node.dataset.brieflySubmitId) {
+      node.dataset.brieflySubmitId = `briefly_submit_${Date.now().toString(36)}_${index}`;
+    }
+    return node.dataset.brieflySubmitId;
+  }
+
+  function describeEditableNode(node) {
+    const explicitLabel = node.labels?.[0]?.innerText
+      || node.getAttribute('aria-label')
+      || node.getAttribute('placeholder')
+      || node.getAttribute('name')
+      || node.getAttribute('id');
+    const label = normalizeSnippet(explicitLabel);
+    if (label) return label.slice(0, 100);
+    if (node.matches('[contenteditable], [role="textbox"]')) return 'Editable page region';
+    return `${node.tagName.toLowerCase()} field`;
+  }
+
+  function getEditableValue(node) {
+    if (isTextInput(node)) {
+      return node.value || '';
+    }
+    return node.innerText || node.textContent || '';
+  }
+
+  function isTextInput(node) {
+    return node instanceof HTMLTextAreaElement || node instanceof HTMLInputElement;
+  }
+
+  function isEditableNode(node) {
+    if (!(node instanceof HTMLElement)) return false;
+    if (node instanceof HTMLInputElement && ['hidden', 'password', 'checkbox', 'radio', 'file'].includes(node.type)) {
+      return false;
+    }
+    return isTextInput(node) || node.isContentEditable || node.getAttribute('role') === 'textbox';
+  }
+
+  function isVisibleNode(node) {
+    if (!(node instanceof HTMLElement)) return false;
+    const style = window.getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+  }
+
+  function getSubmitActionsForNode(node) {
+    const form = node.closest('form');
+    const buttons = form
+      ? Array.from(form.querySelectorAll('button, input[type="submit"], [role="button"]'))
+      : getNearbyButtons(node);
+
+    return buttons
+      .filter(button => isSubmitAction(button))
+      .slice(0, 3)
+      .map((button, index) => ({
+        submitActionId: getOrAssignSubmitActionId(button, index),
+        label: describeSubmitAction(button)
+      }));
+  }
+
+  function getNearbyButtons(node) {
+    const container = node.closest('section, article, div, main') || document.body;
+    return Array.from(container.querySelectorAll('button, input[type="submit"], [role="button"]'))
+      .filter(button => isVisibleNode(button))
+      .sort((left, right) => distanceBetween(node, left) - distanceBetween(node, right));
+  }
+
+  function isSubmitAction(node) {
+    if (!(node instanceof HTMLElement)) return false;
+    if (!isVisibleNode(node)) return false;
+    if (node instanceof HTMLInputElement && node.type === 'submit') return true;
+    const text = describeSubmitAction(node).toLowerCase();
+    return ['submit', 'send', 'save', 'comment', 'reply', 'post', 'create', 'update'].some(token => text.includes(token));
+  }
+
+  function describeSubmitAction(node) {
+    return normalizeSnippet(
+      node.innerText
+        || node.textContent
+        || node.getAttribute('aria-label')
+        || node.getAttribute('value')
+        || node.getAttribute('name')
+    ).slice(0, 80) || 'Submit action';
+  }
+
+  function distanceBetween(a, b) {
+    const aRect = a.getBoundingClientRect();
+    const bRect = b.getBoundingClientRect();
+    return Math.abs(aRect.top - bRect.top) + Math.abs(aRect.left - bRect.left);
+  }
+
   // ──────────────────────────────────────────────────────
   // Message listener — responds to service worker requests
   // ──────────────────────────────────────────────────────
@@ -393,6 +801,25 @@
 
     if (msg.type === 'GET_SELECTION') {
       sendResponse({ selectedText: getSelectedText() });
+      return true;
+    }
+
+    if (msg.type === 'GET_PAGE_ACTIONS') {
+      try {
+        sendResponse({ success: true, actions: getPageActionTargets() });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+      return true;
+    }
+
+    if (msg.type === 'APPLY_OUTPUT_TO_PAGE') {
+      try {
+        const result = applyOutputToPage(msg);
+        sendResponse({ success: true, result });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
       return true;
     }
   });

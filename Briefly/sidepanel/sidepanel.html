@@ -85,6 +85,7 @@
           <div class="control-pills">
             <label class="control-pill"><input type="checkbox" id="toggle-page-context" /><span>Use page context</span></label>
             <label class="control-pill"><input type="checkbox" id="toggle-selection-only" /><span>Prefer selection only</span></label>
+            <label class="control-pill"><input type="checkbox" id="toggle-vision-context" /><span>Include screenshot</span></label>
             <label class="control-pill"><input type="checkbox" id="toggle-redact-sensitive" /><span>Redact sensitive strings</span></label>
           </div>
           <button class="btn-primary" id="btn-run-command">Generate</button>
@@ -97,7 +98,10 @@
             <p class="panel-kicker">Captured Context</p>
             <h3 class="panel-title" id="context-page-title">Loading current tab...</h3>
           </div>
-          <span class="timestamp-chip" id="context-last-updated">Waiting</span>
+          <div class="panel-heading-actions">
+            <button class="text-btn" id="btn-review-context">Review context</button>
+            <span class="timestamp-chip" id="context-last-updated">Waiting</span>
+          </div>
         </div>
         <p class="context-meta" id="context-meta">No active page snapshot yet.</p>
         <p class="context-selection" id="context-selection">No selected text detected.</p>
@@ -268,10 +272,53 @@
               </select>
             </div>
             <div class="settings-field">
+              <label class="field-label" for="quality-mode">Quality mode</label>
+              <select id="quality-mode" class="field-select">
+                <option value="balanced">Balanced</option>
+                <option value="high_precision">High precision</option>
+                <option value="fast">Fast</option>
+              </select>
+            </div>
+            <div class="settings-field">
               <label class="field-label" for="settings-review-before-send">Delivery flow</label>
               <label class="switch-row"><input type="checkbox" id="settings-review-before-send" /><span>Review before sending to integrations</span></label>
             </div>
           </div>
+          <div class="toggle-stack">
+            <label class="switch-row"><input type="checkbox" id="pref-thread-memory" /><span>Carry recent tab history into the next prompt</span></label>
+          </div>
+        </div>
+
+        <div class="settings-group panel-card compact-card">
+          <h3 class="settings-group-title">Custom recipes</h3>
+          <p class="field-hint">Create your own recipe chips with a default request, execution instruction, and optional auto-detect page types.</p>
+          <div class="settings-grid two-col">
+            <div class="settings-field">
+              <label class="field-label" for="custom-recipe-label">Recipe label</label>
+              <input type="text" id="custom-recipe-label" class="field-input" placeholder="Architecture Review" />
+            </div>
+            <div class="settings-field">
+              <label class="field-label" for="custom-recipe-summary">Short summary</label>
+              <input type="text" id="custom-recipe-summary" class="field-input" placeholder="Audit design tradeoffs and open risks" />
+            </div>
+            <div class="settings-field two-col-span">
+              <label class="field-label" for="custom-recipe-request">Default request</label>
+              <textarea id="custom-recipe-request" class="field-input field-textarea" rows="3" placeholder="Review this design and identify the most important technical tradeoffs, risks, and open questions."></textarea>
+            </div>
+            <div class="settings-field two-col-span">
+              <label class="field-label" for="custom-recipe-instruction">Recipe instruction</label>
+              <textarea id="custom-recipe-instruction" class="field-input field-textarea" rows="4" placeholder="Lead with findings. Call out tradeoffs, missing decisions, architectural risks, and recommended next steps."></textarea>
+            </div>
+            <div class="settings-field two-col-span">
+              <label class="field-label" for="custom-recipe-page-types">Auto-detect page types</label>
+              <input type="text" id="custom-recipe-page-types" class="field-input" placeholder="github-pr, github-code, documentation" />
+            </div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn-secondary" id="btn-add-custom-recipe">Add recipe</button>
+            <button class="btn-ghost" id="btn-reset-custom-recipe">Reset form</button>
+          </div>
+          <div class="custom-recipe-list" id="custom-recipe-list"></div>
         </div>
 
         <div class="settings-group panel-card compact-card">
@@ -305,6 +352,7 @@
           <div class="toggle-stack">
             <label class="switch-row"><input type="checkbox" id="pref-use-page-context" /><span>Send page context with prompts</span></label>
             <label class="switch-row"><input type="checkbox" id="pref-selection-only" /><span>Prefer selected text over full page context</span></label>
+            <label class="switch-row"><input type="checkbox" id="pref-use-vision-context" /><span>Attach a screenshot when the visible page matters</span></label>
             <label class="switch-row"><input type="checkbox" id="pref-redact-sensitive" /><span>Redact keys, tokens, emails, and long numbers before generation</span></label>
           </div>
         </div>
@@ -427,11 +475,27 @@
           <p class="panel-kicker">Delivery preview</p>
           <h4 id="integration-preview-title">Choose a destination</h4>
           <p id="integration-preview-meta" class="context-meta">Select an integration to inspect the payload.</p>
+          <div class="integration-options" id="integration-options"></div>
           <pre id="integration-preview-body" class="integration-preview-body">No payload preview yet.</pre>
           <button class="btn-primary" id="btn-confirm-integrate" disabled>Send</button>
         </div>
       </div>
       <button class="modal-close" id="btn-close-integrate">Close</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-context-review" style="display:none">
+    <div class="modal modal-large glass-panel animate-scale-in">
+      <h3 class="modal-title">Review captured context</h3>
+      <div class="modal-body">
+        <p class="context-meta">Choose which signals Briefly should send with the next prompt. Disabled signals stay visible locally but are omitted from generation.</p>
+        <div class="context-review-list" id="context-review-list"></div>
+      </div>
+      <div class="settings-actions">
+        <button class="btn-ghost" id="btn-reset-context-review">Reset defaults</button>
+        <button class="btn-primary" id="btn-apply-context-review">Use these signals</button>
+      </div>
+      <button class="modal-close" id="btn-close-context-review">Close</button>
     </div>
   </div>
 

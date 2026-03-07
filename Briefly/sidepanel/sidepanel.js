@@ -1,17 +1,33 @@
 'use strict';
 
+const DEFAULT_CONTEXT_SIGNAL_PREFS = {
+  selectedText: true,
+  visibleText: true,
+  codeBlocks: true,
+  headings: true,
+  formFields: true,
+  structuredData: true,
+  domainArtifacts: true,
+  screenshot: true
+};
+
 const DEFAULT_SETTINGS = {
   sttProvider: 'whisper',
   language: 'auto',
   tone: 'auto',
   outputFormat: 'markdown',
+  qualityMode: 'balanced',
   theme: 'dark',
   activeTemplate: 'general_assistant',
   usePageContext: true,
   selectionOnly: false,
+  useVisionContext: false,
+  threadMemory: true,
   redactSensitive: true,
   reviewBeforeSend: true,
-  webhookUrl: ''
+  webhookUrl: '',
+  customRecipes: [],
+  contextSignalPrefs: { ...DEFAULT_CONTEXT_SIGNAL_PREFS }
 };
 
 const TEMPLATE_DEFS = [
@@ -75,6 +91,7 @@ const PAGE_TYPE_TEMPLATE_RULES = {
 };
 
 const INTEGRATION_DEFS = [
+  { id: 'page', label: 'Apply to Page', key: null },
   { id: 'notion', label: 'Notion', key: 'notion' },
   { id: 'github', label: 'GitHub', key: 'github' },
   { id: 'jira', label: 'Jira', key: 'jira' },
@@ -93,7 +110,9 @@ const State = {
   context: null,
   history: [],
   library: [],
+  pageActions: [],
   settings: { ...DEFAULT_SETTINGS },
+  customRecipes: [],
   integrations: {},
   encryptedKeys: {},
   currentView: 'main',
@@ -101,6 +120,11 @@ const State = {
   pushToTalkActive: false,
   lastErrorType: null,
   pendingRouteTarget: null,
+  deliveryOptions: {
+    page: { actionTargetId: '', mode: 'auto', submitActionId: '' },
+    github: { mode: 'auto' },
+    jira: { mode: 'auto' }
+  },
   captureMode: 'default',
   manualTemplateOverride: false,
   autoTemplateKey: '',
@@ -119,8 +143,10 @@ const el = {
   commandInput: $('command-input'),
   btnRunCommand: $('btn-run-command'),
   btnRefreshContext: $('btn-refresh-context'),
+  btnReviewContext: $('btn-review-context'),
   togglePageContext: $('toggle-page-context'),
   toggleSelectionOnly: $('toggle-selection-only'),
+  toggleVisionContext: $('toggle-vision-context'),
   toggleRedactSensitive: $('toggle-redact-sensitive'),
   contextPageTitle: $('context-page-title'),
   contextMeta: $('context-meta'),
@@ -171,7 +197,11 @@ const el = {
   integrationPreviewTitle: $('integration-preview-title'),
   integrationPreviewMeta: $('integration-preview-meta'),
   integrationPreviewBody: $('integration-preview-body'),
-  btnConfirmIntegrate: $('btn-confirm-integrate')
+  integrationOptions: $('integration-options'),
+  btnConfirmIntegrate: $('btn-confirm-integrate'),
+  customRecipeList: $('custom-recipe-list'),
+  modalContextReview: $('modal-context-review'),
+  contextReviewList: $('context-review-list')
 };
 
 const wctx = el.waveformCanvas.getContext('2d');
@@ -194,6 +224,7 @@ async function init() {
   renderIntegrationStatuses();
   syncPreferenceControls();
   await refreshContextSnapshot();
+  await hydrateSessionFromBackground();
 }
 
 async function initTabId() {
@@ -210,12 +241,18 @@ async function loadBootstrapData() {
     chrome.storage.local.get(['settings', 'history', 'library', 'integrations', 'encryptedKeys'])
   ]);
 
-  State.settings = { ...DEFAULT_SETTINGS, ...settings };
+  State.settings = normalizeSettings(settings);
+  State.customRecipes = normalizeCustomRecipes(State.settings.customRecipes || []);
+  State.settings.customRecipes = State.customRecipes;
+  if (!findTemplate(State.settings.activeTemplate)) {
+    State.settings.activeTemplate = DEFAULT_SETTINGS.activeTemplate;
+  }
   State.history = history;
   State.library = library;
   State.integrations = normalizeIntegrations(integrations);
   State.encryptedKeys = encryptedKeys;
 
+  populateTemplateSelect();
   populateSettingsFields();
 }
 
@@ -239,7 +276,7 @@ function normalizeIntegrations(integrations = {}) {
 
 function populateTemplateSelect() {
   const select = $('default-template');
-  select.innerHTML = TEMPLATE_DEFS
+  select.innerHTML = getAllTemplates()
     .map(template => `<option value="${template.id}">${template.label}</option>`)
     .join('');
 }
@@ -249,10 +286,13 @@ function populateSettingsFields() {
   $('stt-language').value = State.settings.language;
   $('output-tone').value = State.settings.tone;
   $('output-format').value = State.settings.outputFormat;
+  $('quality-mode').value = State.settings.qualityMode;
   $('default-template').value = State.settings.activeTemplate;
   $('settings-review-before-send').checked = State.settings.reviewBeforeSend;
   $('pref-use-page-context').checked = State.settings.usePageContext;
   $('pref-selection-only').checked = State.settings.selectionOnly;
+  $('pref-use-vision-context').checked = State.settings.useVisionContext;
+  $('pref-thread-memory').checked = State.settings.threadMemory;
   $('pref-redact-sensitive').checked = State.settings.redactSensitive;
   $('notion-page-id').value = State.integrations.notion.defaultPageId;
   $('github-default-repo').value = State.integrations.github.defaultRepo;
@@ -263,14 +303,18 @@ function populateSettingsFields() {
   $('confluence-domain').value = State.integrations.confluence.confluenceDomain;
   $('confluence-email').value = State.integrations.confluence.confluenceEmail;
   $('confluence-page-id').value = State.integrations.confluence.confluencePageId;
+  renderCustomRecipeList();
 }
 
 function syncPreferenceControls() {
   el.togglePageContext.checked = State.settings.usePageContext;
   el.toggleSelectionOnly.checked = State.settings.selectionOnly;
+  el.toggleVisionContext.checked = State.settings.useVisionContext;
   el.toggleRedactSensitive.checked = State.settings.redactSensitive;
   $('pref-use-page-context').checked = State.settings.usePageContext;
   $('pref-selection-only').checked = State.settings.selectionOnly;
+  $('pref-use-vision-context').checked = State.settings.useVisionContext;
+  $('pref-thread-memory').checked = State.settings.threadMemory;
   $('pref-redact-sensitive').checked = State.settings.redactSensitive;
   $('default-template').value = State.settings.activeTemplate;
   $('settings-review-before-send').checked = State.settings.reviewBeforeSend;
@@ -278,12 +322,12 @@ function syncPreferenceControls() {
 }
 
 function updateCommandPlaceholder() {
-  const template = TEMPLATE_DEFS.find(item => item.id === State.settings.activeTemplate) || TEMPLATE_DEFS[0];
+  const template = findTemplate(State.settings.activeTemplate) || getAllTemplates()[0];
   el.commandInput.placeholder = `Typed command for ${template.label}, or leave empty to run: ${template.defaultRequest}`;
 }
 
 function renderRecipeToolbar() {
-  el.recipeToolbar.innerHTML = TEMPLATE_DEFS.map(template => `
+  el.recipeToolbar.innerHTML = getAllTemplates().map(template => `
     <button class="recipe-chip ${template.id === State.settings.activeTemplate ? 'active' : ''}" data-template-id="${template.id}" title="${escHtml(template.summary)}">
       <span>${escHtml(template.label)}</span>
     </button>
@@ -302,9 +346,22 @@ function setupMessageListener() {
         break;
       case 'STATE_TRANSCRIBING':
         setMode('transcribing');
+        if (msg.totalSegments > 1) {
+          el.micHint.textContent = `Transcribing segment 1/${msg.totalSegments}...`;
+        }
         break;
       case 'STATE_GENERATING':
         setMode('generating');
+        break;
+      case 'TRANSCRIPT_PROGRESS':
+        if (State.captureMode === 'refine') {
+          el.refineInput.value = msg.transcript;
+        } else {
+          showTranscript(msg.transcript);
+        }
+        if (msg.totalSegments > 1) {
+          el.micHint.textContent = `Transcribing segment ${msg.completedSegments}/${msg.totalSegments}...`;
+        }
         break;
       case 'TRANSCRIPT_READY':
         if (State.captureMode === 'refine') {
@@ -374,15 +431,22 @@ function bindEvents() {
   });
 
   el.btnRefreshContext.addEventListener('click', refreshContextSnapshot);
+  el.btnReviewContext.addEventListener('click', openContextReview);
   el.togglePageContext.addEventListener('change', () => updateRuntimeSetting('usePageContext', el.togglePageContext.checked, true));
   el.toggleSelectionOnly.addEventListener('change', () => updateRuntimeSetting('selectionOnly', el.toggleSelectionOnly.checked, true));
+  el.toggleVisionContext.addEventListener('change', () => updateRuntimeSetting('useVisionContext', el.toggleVisionContext.checked, false));
   el.toggleRedactSensitive.addEventListener('change', () => updateRuntimeSetting('redactSensitive', el.toggleRedactSensitive.checked, false));
 
   $('pref-use-page-context').addEventListener('change', () => updateRuntimeSetting('usePageContext', $('pref-use-page-context').checked, true));
   $('pref-selection-only').addEventListener('change', () => updateRuntimeSetting('selectionOnly', $('pref-selection-only').checked, true));
+  $('pref-use-vision-context').addEventListener('change', () => updateRuntimeSetting('useVisionContext', $('pref-use-vision-context').checked, false));
+  $('pref-thread-memory').addEventListener('change', () => updateRuntimeSetting('threadMemory', $('pref-thread-memory').checked, false));
   $('pref-redact-sensitive').addEventListener('change', () => updateRuntimeSetting('redactSensitive', $('pref-redact-sensitive').checked, false));
   $('settings-review-before-send').addEventListener('change', () => updateRuntimeSetting('reviewBeforeSend', $('settings-review-before-send').checked, false));
   $('default-template').addEventListener('change', event => setActiveTemplate(event.target.value));
+  $('btn-add-custom-recipe').addEventListener('click', addCustomRecipeFromForm);
+  $('btn-reset-custom-recipe').addEventListener('click', resetCustomRecipeForm);
+  el.customRecipeList.addEventListener('click', handleCustomRecipeListClick);
 
   document.addEventListener('keydown', async event => {
     if (event.code === 'Space' && event.target === document.body) {
@@ -453,6 +517,10 @@ function bindEvents() {
   $('btn-close-export').addEventListener('click', () => closeModal('modal-export'));
 
   $('btn-close-integrate').addEventListener('click', () => closeModal('modal-integrate'));
+  $('btn-close-context-review').addEventListener('click', () => closeModal('modal-context-review'));
+  $('btn-apply-context-review').addEventListener('click', saveContextReviewPreferences);
+  $('btn-reset-context-review').addEventListener('click', resetContextReviewPreferences);
+  el.integrationOptions.addEventListener('change', handleIntegrationOptionChange);
   el.integrationTargetList.addEventListener('click', event => {
     const button = event.target.closest('[data-target]');
     if (!button) return;
@@ -591,19 +659,54 @@ function prepareFreshGeneration() {
 }
 
 function defaultRequestForTemplate(templateId) {
-  return TEMPLATE_DEFS.find(template => template.id === templateId)?.defaultRequest || '';
+  return findTemplate(templateId)?.defaultRequest || '';
 }
 
 async function refreshContextSnapshot() {
   await initTabId();
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT' });
+    const response = await chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT', includeScreenshot: false });
     State.context = response?.context || null;
   } catch {
     State.context = null;
   }
   await maybeAutoSelectTemplate(State.context);
   renderContextSnapshot();
+}
+
+async function hydrateSessionFromBackground() {
+  await initTabId();
+  if (State.tabId == null) return;
+
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_SESSION', tabId: State.tabId });
+    const session = response?.session;
+    if (!session) return;
+
+    if (!State.context && session.lastContext) {
+      State.context = session.lastContext;
+      renderContextSnapshot();
+    }
+
+    if (session.lastTranscript) {
+      State.transcript = session.lastTranscript;
+      showTranscript(session.lastTranscript);
+    }
+
+    if (session.lastIntent) {
+      State.intent = { primary_intent: session.lastIntent, confidence: 1 };
+      showIntentBadge(State.intent);
+    }
+
+    if (session.lastOutput) {
+      State.output = session.lastOutput;
+      showOutputSection();
+      el.markdownOutput.innerHTML = Markdown.render(State.output);
+      setMode('done');
+    }
+  } catch {
+    // Ignore hydration failures; panel can still operate with a fresh state.
+  }
 }
 
 function renderContextSnapshot() {
@@ -658,6 +761,8 @@ function renderContextSnapshot() {
     visibleSignal
   ];
 
+  if (State.settings.useVisionContext) signals.push('Screenshot attached on send');
+  if (hasFilteredContextSignals()) signals.push('Context filtering active');
   if (State.settings.redactSensitive) signals.push('Sensitive strings redacted');
 
   el.contextSignalList.innerHTML = signals.map(signal => `<span class="signal-chip">${escHtml(signal)}</span>`).join('');
@@ -1023,14 +1128,14 @@ function handleError(errorType, message) {
 }
 
 async function updateRuntimeSetting(key, value, refreshContext) {
-  State.settings = { ...State.settings, [key]: value };
+  State.settings = normalizeSettings({ ...State.settings, [key]: value });
   await chrome.storage.local.set({ settings: State.settings });
   syncPreferenceControls();
   if (refreshContext) await refreshContextSnapshot();
 }
 
 async function setActiveTemplate(templateId, options = {}) {
-  if (!templateId) return;
+  if (!templateId || !findTemplate(templateId)) return;
   const { manual = true } = options;
   State.settings.activeTemplate = templateId;
   State.manualTemplateOverride = manual;
@@ -1065,6 +1170,14 @@ async function maybeAutoSelectTemplate(context) {
 
 function getTemplateRecommendation(context) {
   if (!context) return null;
+
+  const customMatch = State.customRecipes.find(template =>
+    Array.isArray(template.autoPageTypes) &&
+    template.autoPageTypes.includes(context.pageType)
+  );
+  if (customMatch) {
+    return { templateId: customMatch.id, reason: 'Custom recipe matched this page type' };
+  }
 
   if (PAGE_TYPE_TEMPLATE_RULES[context.pageType]) {
     return PAGE_TYPE_TEMPLATE_RULES[context.pageType];
@@ -1132,12 +1245,20 @@ async function saveSettings() {
     language: $('stt-language').value,
     tone: $('output-tone').value,
     outputFormat: $('output-format').value,
+    qualityMode: $('quality-mode').value,
     activeTemplate: $('default-template').value,
     usePageContext: $('pref-use-page-context').checked,
     selectionOnly: $('pref-selection-only').checked,
+    useVisionContext: $('pref-use-vision-context').checked,
+    threadMemory: $('pref-thread-memory').checked,
     redactSensitive: $('pref-redact-sensitive').checked,
     reviewBeforeSend: $('settings-review-before-send').checked,
-    webhookUrl: ''
+    webhookUrl: '',
+    customRecipes: State.customRecipes,
+    contextSignalPrefs: {
+      ...DEFAULT_CONTEXT_SIGNAL_PREFS,
+      ...(State.settings.contextSignalPrefs || {})
+    }
   };
 
   const integrations = {
@@ -1176,10 +1297,13 @@ async function saveSettings() {
     await chrome.runtime.sendMessage({ type: 'STORE_KEYS', keys: nonEmptyKeys });
   }
 
-  State.settings = settings;
+  State.settings = normalizeSettings(settings);
+  State.customRecipes = normalizeCustomRecipes(settings.customRecipes || []);
+  State.settings.customRecipes = State.customRecipes;
   State.integrations = normalizeIntegrations(integrations);
   State.encryptedKeys = { ...State.encryptedKeys, ...Object.fromEntries(Object.keys(nonEmptyKeys).map(key => [key, true])) };
 
+  populateTemplateSelect();
   populateSettingsFields();
   syncPreferenceControls();
   renderRecipeToolbar();
@@ -1210,7 +1334,7 @@ function hasKey(name) {
   return Boolean(State.encryptedKeys[name]);
 }
 
-function openIntegrationReview() {
+async function openIntegrationReview() {
   if (!State.output) {
     showToast('Generate an output before routing it.', 'error');
     return;
@@ -1225,39 +1349,54 @@ function openIntegrationReview() {
     return;
   }
 
-  el.integrationTargetList.innerHTML = INTEGRATION_DEFS.map(item => `
-    <button class="integration-target-btn ${State.pendingRouteTarget === item.id ? 'active' : ''}" data-target="${item.id}">
-      <span>${item.label}</span>
-      <span>${isIntegrationReady(item.id) ? 'Ready' : 'Setup'}</span>
-    </button>
-  `).join('');
+  await loadPageActions();
+  renderIntegrationTargetList();
 
   openModal('modal-integrate');
   selectIntegrationTarget(State.pendingRouteTarget || INTEGRATION_DEFS[0].id);
 }
 
-function selectIntegrationTarget(target) {
+async function selectIntegrationTarget(target) {
   State.pendingRouteTarget = target;
-  el.integrationTargetList.querySelectorAll('[data-target]').forEach(button => {
-    button.classList.toggle('active', button.dataset.target === target);
-  });
+
+  if (target === 'page') {
+    await loadPageActions();
+  }
+
+  renderIntegrationTargetList();
+  renderIntegrationOptions(target);
 
   const ready = isIntegrationReady(target);
   el.integrationPreviewTitle.textContent = `${integrationLabel(target)} payload`;
   el.integrationPreviewMeta.textContent = `${ready ? 'Configured' : 'Needs setup'} / ${State.output.length} characters / ${State.settings.reviewBeforeSend ? 'review mode on' : 'quick send mode'}`;
   el.integrationPreviewBody.textContent = buildPayloadPreview(target);
   el.btnConfirmIntegrate.disabled = !State.output;
-  el.btnConfirmIntegrate.textContent = ready ? `Send to ${integrationLabel(target)}` : 'Open settings';
+  el.btnConfirmIntegrate.textContent = ready ? actionLabelForTarget(target) : 'Open settings';
 }
 
 function buildPayloadPreview(target) {
   const title = State.context?.pageTitle || State.transcript.slice(0, 80) || 'Briefly Output';
   const excerpt = State.output.slice(0, 700);
+  const githubThread = detectGitHubThreadTarget();
+  const jiraIssueKey = State.context?.pageType === 'jira-ticket' ? State.context?.domainArtifacts?.issueKey : '';
+  const githubMode = State.deliveryOptions.github.mode;
+  const jiraMode = State.deliveryOptions.jira.mode;
 
   const headerByTarget = {
+    page: State.pageActions.length
+      ? `Insert into page field: ${State.pageActions[0].label}`
+      : 'Insert into page field: [no editable target detected]',
     notion: `Append blocks to page: ${State.integrations.notion.defaultPageId || '[not configured]'}`,
-    github: `Create issue in repo: ${State.integrations.github.defaultRepo || '[not configured]'}`,
-    jira: `Create Jira task in project: ${State.integrations.jira.jiraProject || '[not configured]'}`,
+    github: githubMode === 'create'
+      ? `Create issue in repo: ${State.integrations.github.defaultRepo || '[not configured]'}`
+      : githubThread
+        ? `Add comment to current GitHub ${githubThread.kind} #${githubThread.number}`
+        : 'Add comment to current GitHub issue or pull request: [not available on this page]',
+    jira: jiraMode === 'create'
+      ? `Create Jira task in project: ${State.integrations.jira.jiraProject || '[not configured]'}`
+      : jiraIssueKey
+        ? `Add comment to current Jira issue: ${jiraIssueKey}`
+        : 'Add comment to current Jira issue: [not available on this page]',
     linear: `Create Linear issue for team: ${State.integrations.linear.teamId || '[not configured]'}`,
     slack: 'Post message to configured Slack webhook',
     confluence: `Append content to page: ${State.integrations.confluence.confluencePageId || '[not configured]'}`,
@@ -1268,6 +1407,14 @@ function buildPayloadPreview(target) {
 
   return [
     headerByTarget[target] || 'Unknown target',
+    target === 'page' && State.pageActions.length
+      ? `Detected editable fields: ${State.pageActions.map(action => action.label).join(' | ')}`
+      : '',
+    target === 'page' && selectedPageAction()
+      ? `Selected target: ${selectedPageAction().label} / mode: ${State.deliveryOptions.page.mode}${selectedSubmitActionLabel() ? ` / submit: ${selectedSubmitActionLabel()}` : ''}`
+      : '',
+    target === 'github' ? `Route mode: ${State.deliveryOptions.github.mode}` : '',
+    target === 'jira' ? `Route mode: ${State.deliveryOptions.jira.mode}` : '',
     '',
     `Title: ${title}`,
     `Source URL: ${State.context?.url || 'Unavailable'}`,
@@ -1278,13 +1425,25 @@ function buildPayloadPreview(target) {
 }
 
 function isIntegrationReady(target) {
+  const githubThread = detectGitHubThreadTarget();
+  const jiraIssueKey = State.context?.pageType === 'jira-ticket' ? State.context?.domainArtifacts?.issueKey : '';
+
   switch (target) {
+    case 'page':
+      return Boolean(selectedPageAction());
     case 'notion':
       return hasKey('notion') && !!State.integrations.notion.defaultPageId;
     case 'github':
-      return hasKey('github') && !!State.integrations.github.defaultRepo;
+      if (!hasKey('github')) return false;
+      if (State.deliveryOptions.github.mode === 'comment') return Boolean(githubThread);
+      if (State.deliveryOptions.github.mode === 'create') return Boolean(State.integrations.github.defaultRepo);
+      return !!State.integrations.github.defaultRepo || !!githubThread;
     case 'jira':
-      return hasKey('jira') && !!(State.integrations.jira.jiraDomain && State.integrations.jira.jiraEmail && State.integrations.jira.jiraProject);
+      if (!hasKey('jira')) return false;
+      if (!(State.integrations.jira.jiraDomain && State.integrations.jira.jiraEmail)) return false;
+      if (State.deliveryOptions.jira.mode === 'comment') return Boolean(jiraIssueKey);
+      if (State.deliveryOptions.jira.mode === 'create') return Boolean(State.integrations.jira.jiraProject);
+      return Boolean(jiraIssueKey || State.integrations.jira.jiraProject);
     case 'linear':
       return hasKey('linear') && !!State.integrations.linear.teamId;
     case 'slack':
@@ -1309,12 +1468,77 @@ async function confirmRouteOutput() {
   }
 
   closeModal('modal-integrate');
-  showToast(`Sending to ${integrationLabel(State.pendingRouteTarget)}...`);
-  await chrome.runtime.sendMessage({ type: 'ROUTE_OUTPUT', target: State.pendingRouteTarget, tabId: State.tabId });
+  showToast(`${actionLabelForTarget(State.pendingRouteTarget)}...`);
+  await chrome.runtime.sendMessage({
+    type: 'ROUTE_OUTPUT',
+    target: State.pendingRouteTarget,
+    tabId: State.tabId,
+    options: buildRouteOptions(State.pendingRouteTarget)
+  });
 }
 
 function integrationLabel(target) {
   return INTEGRATION_DEFS.find(item => item.id === target)?.label || target;
+}
+
+function actionLabelForTarget(target) {
+  if (target === 'page') return 'Apply to page';
+  return `Send to ${integrationLabel(target)}`;
+}
+
+function renderIntegrationOptions(target) {
+  if (!el.integrationOptions) return;
+
+  if (target === 'page') {
+    const selectedActionId = selectedPageAction()?.actionId || '';
+    const selectedSubmitActionId = State.deliveryOptions.page.submitActionId || '';
+    const submitActions = selectedPageAction()?.submitActions || [];
+    el.integrationOptions.innerHTML = `
+      <div class="settings-grid two-col">
+        <div class="settings-field">
+          <label class="field-label" for="integration-page-target">Page field</label>
+          <select id="integration-page-target" class="field-select">
+            ${State.pageActions.map(action => `<option value="${escHtml(action.actionId)}" ${action.actionId === selectedActionId ? 'selected' : ''}>${escHtml(action.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="settings-field">
+          <label class="field-label" for="integration-page-mode">Insert mode</label>
+          <select id="integration-page-mode" class="field-select">
+            <option value="auto" ${State.deliveryOptions.page.mode === 'auto' ? 'selected' : ''}>Auto</option>
+            <option value="append" ${State.deliveryOptions.page.mode === 'append' ? 'selected' : ''}>Append</option>
+            <option value="replace" ${State.deliveryOptions.page.mode === 'replace' ? 'selected' : ''}>Replace</option>
+          </select>
+        </div>
+        <div class="settings-field two-col-span">
+          <label class="field-label" for="integration-page-submit">Follow-up action</label>
+          <select id="integration-page-submit" class="field-select">
+            <option value="">Do not click anything after insert</option>
+            ${submitActions.map(action => `<option value="${escHtml(action.submitActionId)}" ${action.submitActionId === selectedSubmitActionId ? 'selected' : ''}>${escHtml(action.label)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (target === 'github' || target === 'jira') {
+    const mode = State.deliveryOptions[target].mode;
+    const commentLabel = target === 'github' ? 'Comment on current page when available' : 'Comment on current ticket when available';
+    const createLabel = target === 'github' ? 'Always create a new issue' : 'Always create a new Jira issue';
+    el.integrationOptions.innerHTML = `
+      <div class="settings-field">
+        <label class="field-label" for="integration-route-mode">Route mode</label>
+        <select id="integration-route-mode" class="field-select" data-target="${target}">
+          <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Auto</option>
+          <option value="comment" ${mode === 'comment' ? 'selected' : ''}>${escHtml(commentLabel)}</option>
+          <option value="create" ${mode === 'create' ? 'selected' : ''}>${escHtml(createLabel)}</option>
+        </select>
+      </div>
+    `;
+    return;
+  }
+
+  el.integrationOptions.innerHTML = '';
 }
 
 function toggleSection(bodyId, headerId) {
@@ -1339,7 +1563,8 @@ async function clearAllData() {
   State.history = [];
   State.library = [];
   State.encryptedKeys = {};
-  State.settings = { ...DEFAULT_SETTINGS };
+  State.settings = normalizeSettings();
+  State.customRecipes = [];
   State.integrations = normalizeIntegrations({});
   document.querySelectorAll('#view-settings input').forEach(input => {
     input.value = '';
@@ -1350,6 +1575,8 @@ async function clearAllData() {
   renderLibraryList();
   renderIntegrationStatuses();
   renderRecipeToolbar();
+  renderCustomRecipeList();
+  resetCustomRecipeForm();
   applyTheme(State.settings.theme);
   await refreshContextSnapshot();
   showToast('Local data cleared', 'success');
@@ -1408,6 +1635,93 @@ function showToast(message, type = 'info') {
   }, 2200);
 }
 
+async function loadPageActions() {
+  await initTabId();
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_PAGE_ACTIONS', tabId: State.tabId });
+    State.pageActions = response?.actions || [];
+    const currentTarget = selectedPageAction();
+    if (!currentTarget && State.pageActions[0]) {
+      State.deliveryOptions.page.actionTargetId = State.pageActions[0].actionId;
+      State.deliveryOptions.page.submitActionId = '';
+    }
+  } catch {
+    State.pageActions = [];
+  }
+}
+
+function renderIntegrationTargetList() {
+  el.integrationTargetList.innerHTML = INTEGRATION_DEFS.map(item => `
+    <button class="integration-target-btn ${State.pendingRouteTarget === item.id ? 'active' : ''}" data-target="${item.id}">
+      <span>${item.label}</span>
+      <span>${isIntegrationReady(item.id) ? 'Ready' : 'Setup'}</span>
+    </button>
+  `).join('');
+}
+
+function buildRouteOptions(target) {
+  if (target === 'page') {
+    return {
+      actionTargetId: selectedPageAction()?.actionId || '',
+      mode: State.deliveryOptions.page.mode === 'auto'
+        ? (selectedPageAction()?.hasValue ? 'append' : 'replace')
+        : State.deliveryOptions.page.mode,
+      submitActionId: State.deliveryOptions.page.submitActionId || ''
+    };
+  }
+  if (target === 'github' || target === 'jira') {
+    return { ...State.deliveryOptions[target] };
+  }
+  return {};
+}
+
+function detectGitHubThreadTarget() {
+  const url = State.context?.url || '';
+  const match = url.match(/github\.com\/[^/]+\/[^/]+\/(issues|pull)\/(\d+)/);
+  if (!match) return null;
+  return {
+    kind: match[1] === 'pull' ? 'pull request' : 'issue',
+    number: match[2]
+  };
+}
+
+function handleIntegrationOptionChange(event) {
+  const target = State.pendingRouteTarget;
+  if (!target) return;
+
+  if (target === 'page') {
+    if (event.target.id === 'integration-page-target') {
+      State.deliveryOptions.page.actionTargetId = event.target.value;
+      State.deliveryOptions.page.submitActionId = '';
+      renderIntegrationOptions(target);
+    } else if (event.target.id === 'integration-page-mode') {
+      State.deliveryOptions.page.mode = event.target.value;
+    } else if (event.target.id === 'integration-page-submit') {
+      State.deliveryOptions.page.submitActionId = event.target.value;
+    }
+  }
+
+  if ((target === 'github' || target === 'jira') && event.target.id === 'integration-route-mode') {
+    State.deliveryOptions[target].mode = event.target.value;
+  }
+
+  renderIntegrationOptions(target);
+  const ready = isIntegrationReady(target);
+  el.integrationPreviewMeta.textContent = `${ready ? 'Configured' : 'Needs setup'} / ${State.output.length} characters / ${State.settings.reviewBeforeSend ? 'review mode on' : 'quick send mode'}`;
+  el.integrationPreviewBody.textContent = buildPayloadPreview(target);
+  el.btnConfirmIntegrate.textContent = ready ? actionLabelForTarget(target) : 'Open settings';
+}
+
+function selectedPageAction() {
+  return State.pageActions.find(action => action.actionId === State.deliveryOptions.page.actionTargetId) || State.pageActions[0] || null;
+}
+
+function selectedSubmitActionLabel() {
+  const submitActionId = State.deliveryOptions.page.submitActionId;
+  if (!submitActionId) return '';
+  return selectedPageAction()?.submitActions?.find(action => action.submitActionId === submitActionId)?.label || '';
+}
+
 function openModal(id) {
   $(id).style.display = 'flex';
 }
@@ -1423,6 +1737,270 @@ function escHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function normalizeSettings(settings = {}) {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    contextSignalPrefs: {
+      ...DEFAULT_CONTEXT_SIGNAL_PREFS,
+      ...(settings.contextSignalPrefs || {})
+    }
+  };
+}
+
+function getAllTemplates() {
+  return [...TEMPLATE_DEFS, ...State.customRecipes];
+}
+
+function findTemplate(templateId) {
+  return getAllTemplates().find(template => template.id === templateId) || null;
+}
+
+function normalizeCustomRecipes(recipes = []) {
+  return recipes
+    .map((recipe, index) => normalizeCustomRecipe(recipe, index))
+    .filter(Boolean);
+}
+
+function normalizeCustomRecipe(recipe, index = 0) {
+  const label = String(recipe?.label || '').trim();
+  const defaultRequest = String(recipe?.defaultRequest || '').trim();
+  const instruction = String(recipe?.instruction || '').trim();
+  if (!label || !defaultRequest || !instruction) return null;
+
+  const summary = String(recipe?.summary || '').trim() || 'Custom Briefly recipe';
+  const rawId = String(recipe?.id || '').trim() || `custom_${slugify(label) || index + 1}`;
+  const id = rawId.startsWith('custom_') ? rawId : `custom_${slugify(rawId) || index + 1}`;
+
+  return {
+    id,
+    label,
+    summary,
+    defaultRequest,
+    instruction,
+    autoPageTypes: normalizePageTypeList(recipe?.autoPageTypes)
+  };
+}
+
+function normalizePageTypeList(value) {
+  const items = Array.isArray(value) ? value : String(value || '').split(',');
+  return items
+    .map(item => String(item || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function slugify(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function renderCustomRecipeList() {
+  if (!el.customRecipeList) return;
+
+  if (!State.customRecipes.length) {
+    el.customRecipeList.innerHTML = '<p class="field-hint">No custom recipes yet.</p>';
+    return;
+  }
+
+  el.customRecipeList.innerHTML = State.customRecipes.map(recipe => `
+    <article class="custom-recipe-item" data-recipe-id="${recipe.id}">
+      <div class="custom-recipe-meta">
+        <div>
+          <div class="library-item-title">${escHtml(recipe.label)}</div>
+          <div class="history-item-meta">
+            <span>${escHtml(recipe.summary)}</span>
+            ${recipe.autoPageTypes.length ? `<span>${escHtml(recipe.autoPageTypes.join(', '))}</span>` : '<span>Manual only</span>'}
+          </div>
+        </div>
+        <button class="custom-recipe-delete" data-action="delete" data-recipe-id="${recipe.id}" aria-label="Delete custom recipe">Delete</button>
+      </div>
+      <p class="field-hint">${escHtml(recipe.defaultRequest)}</p>
+    </article>
+  `).join('');
+}
+
+function openContextReview() {
+  renderContextReview();
+  openModal('modal-context-review');
+}
+
+function renderContextReview() {
+  if (!el.contextReviewList) return;
+
+  const items = buildContextReviewItems();
+  el.contextReviewList.innerHTML = items.map(item => `
+    <article class="context-review-item">
+      <div class="context-review-item-head">
+        <label class="context-review-toggle">
+          <input type="checkbox" data-context-signal="${item.key}" ${item.enabled ? 'checked' : ''} />
+          <span>${escHtml(item.label)}</span>
+        </label>
+        <span class="signal-chip">${escHtml(item.meta)}</span>
+      </div>
+      <pre class="context-review-preview">${escHtml(item.preview)}</pre>
+    </article>
+  `).join('');
+}
+
+function buildContextReviewItems() {
+  const context = State.context || {};
+  const prefs = State.settings.contextSignalPrefs || DEFAULT_CONTEXT_SIGNAL_PREFS;
+  return [
+    {
+      key: 'selectedText',
+      label: 'Selected text',
+      enabled: prefs.selectedText !== false,
+      meta: context.selectedText ? `${context.selectedText.length} chars` : 'none',
+      preview: context.selectedText || 'No selected text on this page.'
+    },
+    {
+      key: 'visibleText',
+      label: 'Visible snapshot',
+      enabled: prefs.visibleText !== false,
+      meta: context.visibleText ? `${context.visibleText.length} chars` : 'none',
+      preview: context.visibleText || 'No visible text snapshot captured.'
+    },
+    {
+      key: 'codeBlocks',
+      label: 'Code blocks',
+      enabled: prefs.codeBlocks !== false,
+      meta: `${context.codeBlocks?.length || 0} blocks`,
+      preview: (context.codeBlocks || [])
+        .slice(0, 2)
+        .map((block, index) => `Snippet ${index + 1} [${block.lang || 'unknown'}]\n${block.code}`)
+        .join('\n\n') || 'No code blocks captured.'
+    },
+    {
+      key: 'headings',
+      label: 'Headings',
+      enabled: prefs.headings !== false,
+      meta: `${context.headings?.length || 0} headings`,
+      preview: (context.headings || []).map(item => `H${item.level}: ${item.text}`).join('\n') || 'No headings captured.'
+    },
+    {
+      key: 'formFields',
+      label: 'Form fields',
+      enabled: prefs.formFields !== false,
+      meta: `${context.formFields?.length || 0} fields`,
+      preview: (context.formFields || []).map(item => `${item.label || item.type}: ${item.value}`).join('\n') || 'No form fields captured.'
+    },
+    {
+      key: 'structuredData',
+      label: 'Structured data',
+      enabled: prefs.structuredData !== false,
+      meta: context.structuredData ? 'available' : 'none',
+      preview: context.structuredData ? JSON.stringify(context.structuredData, null, 2).slice(0, 1200) : 'No structured data captured.'
+    },
+    {
+      key: 'domainArtifacts',
+      label: 'Domain-specific artifacts',
+      enabled: prefs.domainArtifacts !== false,
+      meta: context.domainArtifacts && Object.keys(context.domainArtifacts).length ? 'available' : 'none',
+      preview: context.domainArtifacts ? JSON.stringify(context.domainArtifacts, null, 2).slice(0, 1200) : 'No domain-specific artifacts captured.'
+    },
+    {
+      key: 'screenshot',
+      label: 'Screenshot attachment',
+      enabled: prefs.screenshot !== false,
+      meta: State.settings.useVisionContext ? 'enabled in settings' : 'disabled in settings',
+      preview: State.settings.useVisionContext
+        ? 'A fresh screenshot of the visible page will be attached at send time when this signal is enabled.'
+        : 'Screenshot capture is currently turned off in settings.'
+    }
+  ];
+}
+
+async function saveContextReviewPreferences() {
+  const nextPrefs = { ...DEFAULT_CONTEXT_SIGNAL_PREFS };
+  el.contextReviewList.querySelectorAll('[data-context-signal]').forEach(input => {
+    nextPrefs[input.dataset.contextSignal] = input.checked;
+  });
+  State.settings = normalizeSettings({
+    ...State.settings,
+    contextSignalPrefs: nextPrefs
+  });
+  await chrome.storage.local.set({ settings: State.settings });
+  renderContextSnapshot();
+  closeModal('modal-context-review');
+  showToast('Context filters updated', 'success');
+}
+
+async function resetContextReviewPreferences() {
+  State.settings = normalizeSettings({
+    ...State.settings,
+    contextSignalPrefs: { ...DEFAULT_CONTEXT_SIGNAL_PREFS }
+  });
+  await chrome.storage.local.set({ settings: State.settings });
+  renderContextReview();
+  renderContextSnapshot();
+}
+
+function hasFilteredContextSignals() {
+  const prefs = State.settings.contextSignalPrefs || DEFAULT_CONTEXT_SIGNAL_PREFS;
+  return Object.values(prefs).some(value => value === false);
+}
+
+async function addCustomRecipeFromForm() {
+  const recipe = normalizeCustomRecipe({
+    label: $('custom-recipe-label').value,
+    summary: $('custom-recipe-summary').value,
+    defaultRequest: $('custom-recipe-request').value,
+    instruction: $('custom-recipe-instruction').value,
+    autoPageTypes: $('custom-recipe-page-types').value
+  }, State.customRecipes.length);
+
+  if (!recipe) {
+    showToast('Recipe label, default request, and instruction are required.', 'error');
+    return;
+  }
+
+  if (findTemplate(recipe.id)) {
+    showToast('A recipe with that label already exists.', 'error');
+    return;
+  }
+
+  State.customRecipes = [...State.customRecipes, recipe];
+  State.settings = { ...State.settings, customRecipes: State.customRecipes };
+  await chrome.storage.local.set({ settings: State.settings });
+  populateTemplateSelect();
+  renderRecipeToolbar();
+  renderCustomRecipeList();
+  syncPreferenceControls();
+  resetCustomRecipeForm();
+  showToast('Custom recipe added', 'success');
+}
+
+function resetCustomRecipeForm() {
+  $('custom-recipe-label').value = '';
+  $('custom-recipe-summary').value = '';
+  $('custom-recipe-request').value = '';
+  $('custom-recipe-instruction').value = '';
+  $('custom-recipe-page-types').value = '';
+}
+
+async function handleCustomRecipeListClick(event) {
+  const deleteButton = event.target.closest('[data-action="delete"]');
+  if (!deleteButton) return;
+
+  const recipeId = deleteButton.dataset.recipeId;
+  State.customRecipes = State.customRecipes.filter(recipe => recipe.id !== recipeId);
+  State.settings = { ...State.settings, customRecipes: State.customRecipes };
+
+  if (!findTemplate(State.settings.activeTemplate)) {
+    State.settings.activeTemplate = DEFAULT_SETTINGS.activeTemplate;
+    State.manualTemplateOverride = false;
+  }
+
+  await chrome.storage.local.set({ settings: State.settings });
+  populateTemplateSelect();
+  renderRecipeToolbar();
+  renderCustomRecipeList();
+  syncPreferenceControls();
+  showToast('Custom recipe deleted', 'success');
 }
 
 document.addEventListener('DOMContentLoaded', init);

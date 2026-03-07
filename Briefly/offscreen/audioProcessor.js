@@ -7,11 +7,14 @@
 (function () {
   'use strict';
 
+  const RECORDER_SEGMENT_MS = 15000;
+
   let mediaRecorder = null;
   let audioStream = null;
   let audioContext = null;
   let analyserNode = null;
-  let audioChunks = [];
+  let recordedSegments = [];
+  let activeMimeType = 'audio/webm';
   let waveformInterval = null;
 
   function notifyBackground(message) {
@@ -66,17 +69,15 @@
 
       // Determine MIME type
       const mimeType = getSupportedMimeType();
-      audioChunks = [];
+      recordedSegments = [];
+      activeMimeType = mimeType || 'audio/webm';
 
       mediaRecorder = new MediaRecorder(audioStream, { mimeType });
       mediaRecorder.ondataavailable = e => {
-        if (e.data.size > 0) audioChunks.push(e.data);
-      };
-      mediaRecorder.onstop = async () => {
-        await processAndSendAudio(mimeType);
+        if (e.data.size > 0) recordedSegments.push(e.data);
       };
 
-      mediaRecorder.start(250); // Collect chunks every 250ms
+      mediaRecorder.start(RECORDER_SEGMENT_MS);
 
       // Stream waveform data to side panel via service worker
       streamWaveform();
@@ -101,9 +102,9 @@
         return;
       }
       mediaRecorder.onstop = async () => {
-        const blob = await processAndSendAudio();
+        const segments = await processAndSendAudio();
         cleanupAudio();
-        resolve(blob);
+        resolve(segments);
       };
       mediaRecorder.stop();
     });
@@ -114,35 +115,39 @@
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
       mediaRecorder.stop();
     }
-    audioChunks = [];
+    recordedSegments = [];
     cleanupAudio();
     notifyBackground({ type: 'RECORDING_CANCELLED' });
   }
 
-  async function processAndSendAudio(mimeType) {
-    if (audioChunks.length === 0) return null;
+  async function processAndSendAudio() {
+    if (recordedSegments.length === 0) return null;
 
-    const blob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
-    audioChunks = [];
+    const segments = recordedSegments.filter(segment => segment.size > 0);
+    recordedSegments = [];
 
-    if (blob.size < 1000) {
+    const totalSize = segments.reduce((sum, segment) => sum + segment.size, 0);
+    if (totalSize < 1000) {
       // Too small — likely silence
       notifyBackground({ type: 'AUDIO_TOO_SHORT' });
       return null;
     }
 
-    // Convert to base64 for messaging
-    const reader = new FileReader();
-    reader.readAsDataURL(blob);
-    reader.onloadend = () => {
-      notifyBackground({
-        type: 'AUDIO_READY',
-        audioData: reader.result,
-        mimeType: blob.type,
-        size: blob.size
-      });
-    };
-    return blob;
+    const encodedSegments = await Promise.all(
+      segments.map(async segment => ({
+        audioData: await blobToDataUrl(segment),
+        mimeType: segment.type || activeMimeType,
+        size: segment.size
+      }))
+    );
+
+    notifyBackground({
+      type: 'AUDIO_READY',
+      audioSegments: encodedSegments,
+      mimeType: activeMimeType,
+      size: totalSize
+    });
+    return encodedSegments;
   }
 
   function streamWaveform() {
@@ -183,6 +188,14 @@
       audioContext = null;
     }
     analyserNode = null;
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise(resolve => {
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = () => resolve(reader.result);
+    });
   }
 
   function getSupportedMimeType() {

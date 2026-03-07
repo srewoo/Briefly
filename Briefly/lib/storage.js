@@ -63,13 +63,27 @@ const Storage = {
       language: 'auto',
       tone: 'auto',
       outputFormat: 'markdown',
+      qualityMode: 'balanced',
       theme: 'dark',
       activeTemplate: 'general_assistant',
       usePageContext: true,
       selectionOnly: false,
+      useVisionContext: false,
+      threadMemory: true,
       redactSensitive: true,
       reviewBeforeSend: true,
       webhookUrl: '',
+      customRecipes: [],
+      contextSignalPrefs: {
+        selectedText: true,
+        visibleText: true,
+        codeBlocks: true,
+        headings: true,
+        formFields: true,
+        structuredData: true,
+        domainArtifacts: true,
+        screenshot: true
+      },
       ...settings
     };
   },

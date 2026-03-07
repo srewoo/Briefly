@@ -397,6 +397,12 @@ button, input, textarea, select {
   gap: var(--space-3);
 }
 
+.panel-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .panel-title,
 .view-title,
 .error-title,
@@ -459,6 +465,12 @@ button, input, textarea, select {
 .field-select,
 .search-input {
   padding: 14px 16px;
+}
+
+.field-textarea {
+  min-height: 104px;
+  resize: vertical;
+  line-height: var(--leading-relaxed);
 }
 
 .command-input {
@@ -929,6 +941,10 @@ button, input, textarea, select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.two-col-span {
+  grid-column: 1 / -1;
+}
+
 .settings-grid.three-col {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -944,6 +960,11 @@ button, input, textarea, select {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-muted);
+}
+
+.field-hint {
+  margin: 0;
+  line-height: var(--leading-relaxed);
 }
 
 .field-select {
@@ -976,6 +997,42 @@ button, input, textarea, select {
 .integration-config-grid {
   display: grid;
   gap: var(--space-3);
+}
+
+.custom-recipe-list {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.custom-recipe-item {
+  padding: var(--space-3);
+  border-radius: 20px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-quiet);
+}
+
+.custom-recipe-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.custom-recipe-delete {
+  flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.custom-recipe-delete:hover {
+  color: var(--accent-error);
+  border-color: rgba(255, 124, 67, 0.28);
 }
 
 .integration-config-card {
@@ -1038,6 +1095,48 @@ button, input, textarea, select {
   gap: var(--space-3);
 }
 
+.context-review-list {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.context-review-item {
+  padding: var(--space-3);
+  border-radius: 20px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-quiet);
+}
+
+.context-review-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.context-review-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-primary);
+}
+
+.context-review-preview {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3);
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-code);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  max-height: 180px;
+  overflow: auto;
+}
+
 .integration-target-btn {
   width: 100%;
   justify-content: space-between;
@@ -1050,6 +1149,11 @@ button, input, textarea, select {
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4);
+}
+
+.integration-options {
+  display: grid;
+  gap: var(--space-3);
 }
 
 .integration-preview-body {
