@@ -18,46 +18,61 @@ const TEMPLATE_DEFS = [
   {
     id: 'general_assistant',
     label: 'General',
-    summary: 'Flexible browser copilot',
-    defaultRequest: 'Summarize the current page and tell me what matters.'
+    summary: 'High-signal summary with decisions, risks, and actions',
+    defaultRequest: 'Summarize this page into the key points, important decisions, risks, and next actions. Keep it concise and high signal.'
   },
   {
     id: 'bug_report',
     label: 'Bug Report',
-    summary: 'Turn context into a bug ticket',
-    defaultRequest: 'Create a bug report from the current page or selected text.'
+    summary: 'Evidence-based defect report',
+    defaultRequest: 'Create a precise bug report from this page. Include summary, impact, steps to reproduce, expected result, actual result, evidence, likely cause, environment, and open questions.'
   },
   {
     id: 'pr_review',
     label: 'PR Review',
-    summary: 'Find risks, regressions, and missing tests',
-    defaultRequest: 'Review the current page like a pull request and list findings first.'
+    summary: 'Senior review with findings first',
+    defaultRequest: 'Review this like a pull request. Lead with concrete findings ordered by severity, then mention residual risks and missing tests.'
   },
   {
     id: 'test_plan',
     label: 'Test Plan',
-    summary: 'Generate QA coverage',
-    defaultRequest: 'Create a QA test plan from the current page context.'
+    summary: 'QA coverage across happy, edge, and failure paths',
+    defaultRequest: 'Create a QA test plan from this context with objective, scope, happy paths, edge cases, negative cases, regression risks, automation candidates, and setup needs.'
   },
   {
     id: 'product_spec',
     label: 'Spec',
-    summary: 'Draft a product spec',
-    defaultRequest: 'Turn this page into a product spec with risks and success metrics.'
+    summary: 'Structured product spec with open decisions',
+    defaultRequest: 'Turn this into a product spec with problem, users, goals, non-goals, user flows, requirements, edge cases, dependencies, launch risks, and success metrics.'
   },
   {
     id: 'release_notes',
     label: 'Release Notes',
-    summary: 'Summarize what shipped',
-    defaultRequest: 'Draft release notes from the current page and call out rollout risks.'
+    summary: 'Customer-facing release summary',
+    defaultRequest: 'Draft release notes from this page with a short headline, customer-facing highlights, operational notes, risks or caveats, and follow-up items.'
   },
   {
     id: 'customer_reply',
     label: 'Customer Reply',
-    summary: 'Draft a customer-facing response',
-    defaultRequest: 'Draft a concise customer reply based on the current page context.'
+    summary: 'Concise, empathetic message ready to send',
+    defaultRequest: 'Draft a concise customer reply based on this page. Be empathetic, specific, and include the next step or clear ask.'
   }
 ];
+
+const PAGE_TYPE_TEMPLATE_RULES = {
+  'github-pr': { templateId: 'pr_review', reason: 'Pull request page' },
+  'github-code': { templateId: 'pr_review', reason: 'Code page' },
+  'github-issue': { templateId: 'bug_report', reason: 'Issue page' },
+  'jira-ticket': { templateId: 'bug_report', reason: 'Jira issue' },
+  'linear-issue': { templateId: 'bug_report', reason: 'Linear issue' },
+  'confluence-doc': { templateId: 'product_spec', reason: 'Documentation page' },
+  'notion-page': { templateId: 'product_spec', reason: 'Workspace doc' },
+  documentation: { templateId: 'general_assistant', reason: 'Documentation page' },
+  'research-paper': { templateId: 'general_assistant', reason: 'Research page' },
+  article: { templateId: 'general_assistant', reason: 'Article page' },
+  slack: { templateId: 'customer_reply', reason: 'Conversation page' },
+  technical: { templateId: 'pr_review', reason: 'Technical page' }
+};
 
 const INTEGRATION_DEFS = [
   { id: 'notion', label: 'Notion', key: 'notion' },
@@ -86,7 +101,10 @@ const State = {
   pushToTalkActive: false,
   lastErrorType: null,
   pendingRouteTarget: null,
-  captureMode: 'default'
+  captureMode: 'default',
+  manualTemplateOverride: false,
+  autoTemplateKey: '',
+  lastAutoTemplateId: null
 };
 
 const $ = id => document.getElementById(id);
@@ -584,6 +602,7 @@ async function refreshContextSnapshot() {
   } catch {
     State.context = null;
   }
+  await maybeAutoSelectTemplate(State.context);
   renderContextSnapshot();
 }
 
@@ -606,12 +625,29 @@ function renderContextSnapshot() {
     return;
   }
 
-  const { pageTitle, domain, pageType, selectedText, codeBlocks = [], headings = [], formFields = [], visibleText = '', extractedAt } = State.context;
+  const {
+    pageTitle,
+    domain,
+    pageType,
+    selectedText,
+    codeBlocks = [],
+    headings = [],
+    formFields = [],
+    visibleText = '',
+    visibleTextLimit = 0,
+    extractedAt
+  } = State.context;
   el.contextPageTitle.textContent = pageTitle || 'Untitled page';
-  el.contextMeta.textContent = `${domain || 'Unknown domain'} / ${pageType || 'general'}${State.settings.selectionOnly ? ' / selection-first mode' : ''}`;
+  el.contextMeta.textContent = `${domain || 'Unknown domain'} / ${formatPageTypeLabel(pageType)}${State.settings.selectionOnly ? ' / selection-first mode' : ''}`;
   el.contextSelection.textContent = selectedText
     ? `Selection: ${selectedText.slice(0, 180)}${selectedText.length > 180 ? '...' : ''}`
     : 'No selected text detected. Briefly will use the broader page snapshot.';
+
+  const visibleSignal = visibleText
+    ? visibleTextLimit && visibleText.length >= visibleTextLimit
+      ? `Focused snapshot ${visibleText.length} chars`
+      : `${visibleText.length} chars visible`
+    : 'No visible text snapshot';
   el.contextLastUpdated.textContent = extractedAt ? I18n.relativeTime(extractedAt) : 'Just now';
 
   const signals = [
@@ -619,7 +655,7 @@ function renderContextSnapshot() {
     `${codeBlocks.length} code block${codeBlocks.length === 1 ? '' : 's'}`,
     `${headings.length} heading${headings.length === 1 ? '' : 's'}`,
     `${formFields.length} field${formFields.length === 1 ? '' : 's'}`,
-    `${visibleText.length} chars visible`
+    visibleSignal
   ];
 
   if (State.settings.redactSensitive) signals.push('Sensitive strings redacted');
@@ -993,12 +1029,64 @@ async function updateRuntimeSetting(key, value, refreshContext) {
   if (refreshContext) await refreshContextSnapshot();
 }
 
-async function setActiveTemplate(templateId) {
+async function setActiveTemplate(templateId, options = {}) {
   if (!templateId) return;
+  const { manual = true } = options;
   State.settings.activeTemplate = templateId;
+  State.manualTemplateOverride = manual;
+  if (!manual) {
+    State.lastAutoTemplateId = templateId;
+  }
   await chrome.storage.local.set({ settings: State.settings });
   renderRecipeToolbar();
   syncPreferenceControls();
+}
+
+async function maybeAutoSelectTemplate(context) {
+  const recommendation = getTemplateRecommendation(context);
+  if (!recommendation) return;
+
+  const pageKey = `${context.pageType || 'general'}|${context.domain || ''}|${context.url || ''}`;
+  const pageChanged = State.autoTemplateKey !== pageKey;
+  const shouldApply =
+    pageChanged ||
+    !State.manualTemplateOverride ||
+    State.settings.activeTemplate === State.lastAutoTemplateId ||
+    State.settings.activeTemplate === DEFAULT_SETTINGS.activeTemplate;
+
+  State.autoTemplateKey = pageKey;
+  if (!shouldApply || State.settings.activeTemplate === recommendation.templateId) {
+    State.lastAutoTemplateId = recommendation.templateId;
+    return;
+  }
+
+  await setActiveTemplate(recommendation.templateId, { manual: false });
+}
+
+function getTemplateRecommendation(context) {
+  if (!context) return null;
+
+  if (PAGE_TYPE_TEMPLATE_RULES[context.pageType]) {
+    return PAGE_TYPE_TEMPLATE_RULES[context.pageType];
+  }
+
+  if (context.codeBlocks?.length) {
+    return { templateId: 'pr_review', reason: 'Code detected on page' };
+  }
+
+  if (context.formFields?.length >= 4) {
+    return { templateId: 'customer_reply', reason: 'Form-heavy page' };
+  }
+
+  return null;
+}
+
+function formatPageTypeLabel(pageType) {
+  const label = pageType || 'general';
+  return label
+    .split('-')
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function navigateTo(view) {

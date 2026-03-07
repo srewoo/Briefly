@@ -7,19 +7,50 @@
 (function () {
   'use strict';
 
+  const VISIBLE_TEXT_LIMITS = {
+    'github-code': 1400,
+    'github-pr': 2200,
+    'github-issue': 1800,
+    'jira-ticket': 1800,
+    'confluence-doc': 2200,
+    'notion-page': 2200,
+    'linear-issue': 1800,
+    'research-paper': 2400,
+    documentation: 2200,
+    article: 2200,
+    technical: 1800,
+    general: 1600
+  };
+
+  const CODE_BLOCK_SELECTORS = [
+    'pre',
+    'pre code',
+    'code[class*="language-"]',
+    '[class*="language-"] code',
+    '.highlight pre',
+    '.codehilite pre',
+    '.prism-code',
+    '.blob-code-inner',
+    '.react-code-text',
+    '.react-code-cell'
+  ];
+
   /**
    * Extract all 10 context signals from the current page.
    * Returns a structured context object.
    */
   function extractPageContext() {
+    const pageType = detectPageType();
+    const visibleTextLimit = getVisibleTextLimit(pageType);
     const ctx = {
       pageTitle: document.title || '',
       url: window.location.href,
       domain: window.location.hostname,
-      pageType: detectPageType(),
+      pageType,
       selectedText: getSelectedText(),
-      visibleText: getVisibleText(),
-      codeBlocks: getCodeBlocks(),
+      visibleText: getVisibleText(pageType, visibleTextLimit),
+      visibleTextLimit,
+      codeBlocks: getCodeBlocks(pageType),
       headings: getHeadings(),
       structuredData: getStructuredData(),
       formFields: getFormContext(),
@@ -37,27 +68,68 @@
     return selection.toString().trim().slice(0, 2000);
   }
 
-  /** P0: Get visible page text (truncated to 4000 chars) */
-  function getVisibleText() {
-    // Get meaningful text, skip scripts/styles/nav
-    const cloned = document.body.cloneNode(true);
-    ['script', 'style', 'noscript', 'head', 'nav', 'footer', '[aria-hidden="true"]'].forEach(sel => {
+  function getVisibleTextLimit(pageType) {
+    return VISIBLE_TEXT_LIMITS[pageType] || VISIBLE_TEXT_LIMITS.general;
+  }
+
+  /** P0: Get visible page text from the primary content region */
+  function getVisibleText(pageType, limit) {
+    const root = getPrimaryContentRoot(pageType);
+    if (!root) return '';
+
+    const cloned = root.cloneNode(true);
+    [
+      'script',
+      'style',
+      'noscript',
+      'head',
+      'nav',
+      'footer',
+      'header',
+      'aside',
+      '[aria-hidden="true"]',
+      '[hidden]',
+      '.sr-only',
+      '.visually-hidden',
+      '.blob-code',
+      '.blob-code-inner',
+      '.react-code-text',
+      '.react-code-cell',
+      'pre',
+      'code'
+    ].forEach(sel => {
       cloned.querySelectorAll(sel).forEach(el => el.remove());
     });
-    const text = cloned.innerText || cloned.textContent || '';
-    return text.replace(/\s+/g, ' ').trim().slice(0, 4000);
+
+    const text = (cloned.innerText || cloned.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return text.slice(0, limit);
   }
 
   /** P0: Collect code blocks with language detection */
-  function getCodeBlocks() {
+  function getCodeBlocks(pageType) {
+    if (pageType === 'github-code') {
+      return getGitHubBlobCodeBlocks();
+    }
+
     const blocks = [];
-    document.querySelectorAll('pre, code').forEach(el => {
-      const text = el.innerText || el.textContent || '';
-      if (text.trim().length < 10) return;
-      const lang = detectCodeLanguage(el);
-      blocks.push({ lang, code: text.trim().slice(0, 800) });
+    const seen = new Set();
+
+    document.querySelectorAll(CODE_BLOCK_SELECTORS.join(', ')).forEach(el => {
+      const codeRoot = el.matches('pre') ? el : el.closest('pre') || el;
+      if (!codeRoot || seen.has(codeRoot)) return;
+      seen.add(codeRoot);
+
+      const text = codeRoot.innerText || codeRoot.textContent || '';
+      const normalized = normalizeCodeText(text);
+      if (!looksLikeCode(normalized)) return;
+      const lang = detectCodeLanguage(codeRoot);
+      blocks.push({ lang, code: normalized.slice(0, 1600) });
     });
-    return blocks.slice(0, 5); // Cap at 5 code blocks
+
+    return dedupeCodeBlocks(blocks).slice(0, 6);
   }
 
   /** P0: Get heading hierarchy */
@@ -166,6 +238,8 @@
   /** Naive code language detection from element classes */
   function detectCodeLanguage(el) {
     const cls = (el.className + ' ' + (el.querySelector('code')?.className || '')).toLowerCase();
+    const pathLang = detectCodeLanguageFromPath(window.location.pathname);
+    if (pathLang) return pathLang;
     const langs = ['javascript', 'python', 'java', 'typescript', 'rust', 'go', 'bash', 'shell',
       'sql', 'html', 'css', 'yaml', 'json', 'ruby', 'php', 'cpp', 'c', 'swift'];
     for (const lang of langs) {
@@ -174,6 +248,133 @@
       }
     }
     return 'unknown';
+  }
+
+  function detectCodeLanguageFromPath(pathname) {
+    const extension = pathname.split('.').pop()?.toLowerCase();
+    const byExtension = {
+      js: 'javascript',
+      jsx: 'javascript',
+      ts: 'typescript',
+      tsx: 'typescript',
+      py: 'python',
+      java: 'java',
+      rs: 'rust',
+      go: 'go',
+      sh: 'bash',
+      bash: 'bash',
+      zsh: 'bash',
+      sql: 'sql',
+      html: 'html',
+      css: 'css',
+      scss: 'css',
+      json: 'json',
+      yml: 'yaml',
+      yaml: 'yaml',
+      rb: 'ruby',
+      php: 'php',
+      cpp: 'cpp',
+      cc: 'cpp',
+      cxx: 'cpp',
+      c: 'c',
+      swift: 'swift',
+      md: 'markdown'
+    };
+    return byExtension[extension] || '';
+  }
+
+  function getPrimaryContentRoot(pageType) {
+    const candidatesByType = {
+      'github-code': [
+        '.repository-content',
+        '.blob-wrapper',
+        '.js-file-content',
+        '.react-code-view',
+        'main'
+      ],
+      'github-pr': [
+        '[data-testid="pull-request-tab-content"]',
+        '.pull-discussion-timeline',
+        '.repository-content',
+        'main'
+      ],
+      'github-issue': [
+        '.gh-header-show',
+        '.js-issue-title',
+        '.Layout-main',
+        'main'
+      ],
+      'jira-ticket': [
+        '[data-testid="issue.views.issue-base.foundation.content"]',
+        '[data-testid="issue.views.issue-base.foundation.summary"]',
+        'main'
+      ],
+      'confluence-doc': [
+        '#main-content',
+        '.wiki-content',
+        'main'
+      ],
+      article: ['article', 'main'],
+      documentation: ['main', 'article'],
+      technical: ['main', 'article'],
+      general: ['main', 'article', '[role="main"]', 'body']
+    };
+
+    const selectors = candidatesByType[pageType] || candidatesByType.general;
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      if (node && node.innerText?.trim()) return node;
+    }
+
+    return document.body;
+  }
+
+  function getGitHubBlobCodeBlocks() {
+    const lines = Array.from(
+      document.querySelectorAll(
+        '.react-code-text, .react-code-cell, .blob-code-inner, td.blob-code, td.blob-code-inner'
+      )
+    )
+      .map(node => normalizeCodeText(node.innerText || node.textContent || ''))
+      .filter(Boolean);
+
+    if (!lines.length) return [];
+
+    const joined = lines.join('\n').slice(0, 5000);
+    if (!looksLikeCode(joined)) return [];
+
+    return [{
+      lang: detectCodeLanguageFromPath(window.location.pathname) || 'unknown',
+      code: joined
+    }];
+  }
+
+  function normalizeCodeText(text) {
+    return (text || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\t/g, '  ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  function dedupeCodeBlocks(blocks) {
+    const seen = new Set();
+    return blocks.filter(block => {
+      const key = `${block.lang}:${block.code.slice(0, 220)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function looksLikeCode(text) {
+    if (!text || text.length < 24) return false;
+    const codeIndicators = [
+      '{', '}', '=>', '();', 'const ', 'let ', 'function ', 'class ', 'import ',
+      'export ', 'return ', '</', '/>', '#include', 'def ', 'SELECT ', 'FROM '
+    ];
+    const lineCount = text.split('\n').length;
+    return lineCount >= 2 || codeIndicators.some(token => text.includes(token));
   }
 
   // ──────────────────────────────────────────────────────

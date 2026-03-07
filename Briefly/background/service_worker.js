@@ -407,6 +407,7 @@ async function processTranscript({ transcript, context, localIntent, overrideInt
 async function refineOutput({ refinement, previousOutput, context, transcript, tabId }) {
   const openaiKey = await getDecryptedKey('openai');
   if (!openaiKey) throw new Error('OpenAI API key required for refinement.');
+  const sanitizedContext = sanitizePromptContext(context || {}, { usePageContext: true, redactSensitive: true });
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -421,11 +422,29 @@ async function refineOutput({ refinement, previousOutput, context, transcript, t
       messages: [
         {
           role: 'system',
-          content: 'You are a helpful AI assistant that refines and improves previously generated content based on user feedback. Maintain the same format and style unless asked to change it.'
+          content: [
+            'You are Briefly, refining an existing draft using the user\'s latest instruction.',
+            'Preserve accurate details from the prior draft unless the new instruction asks to remove or replace them.',
+            'Follow the latest refinement request over the previous draft when they conflict.',
+            'Keep the same format and overall structure unless the user explicitly asks for a different format.',
+            'Do not invent missing facts. If essential information is missing, keep the draft useful and note the assumption briefly.',
+            'Return only the improved final draft.'
+          ].join('\n')
         },
-        { role: 'user', content: `Original request / context: "${transcript || 'unknown'}"\n\nPage context (optional): ${JSON.stringify(context || {}, null, 2)}` },
+        {
+          role: 'user',
+          content: [
+            `Original request:\n${transcript || 'unknown'}`,
+            buildPageContextBlock(sanitizedContext)
+          ].filter(Boolean).join('\n\n')
+        },
         { role: 'assistant', content: previousOutput || '' },
-        { role: 'user', content: refinement ? `Please refine: ${refinement}` : 'Please improve this output.' }
+        {
+          role: 'user',
+          content: refinement
+            ? `Refinement request:\n${refinement}\n\nRevise the previous draft accordingly.`
+            : 'Improve the previous draft for clarity, accuracy, and usefulness without changing its format.'
+        }
       ]
     })
   });
@@ -447,42 +466,87 @@ async function refineOutput({ refinement, previousOutput, context, transcript, t
 // ─────────────────────────────────────────────────────────────────
 function buildSystemPrompt(intent, tone, outputFormat, templateId) {
   const baseByIntent = {
-    summarize: 'You summarize content into clear, concise bullet points and sections.',
-    prompt_generation: 'You turn user ideas into high quality, copy-pastable prompts for powerful LLMs.',
-    task_extraction: 'You extract actionable tasks, with clear owners and priorities, from the given content.',
-    documentation: 'You write clean, structured technical documentation and README-style guides.',
-    testing: 'You design test cases, scenarios, and edge cases for the described feature or code.',
-    code_review: 'You perform code reviews, highlight issues, and suggest improvements.',
-    user_story: 'You convert ideas into user stories with acceptance criteria.',
-    explain: 'You explain concepts step by step in simple language.',
-    translate_intent: 'You translate the content while preserving meaning and tone.',
-    email_draft: 'You draft professional, well-structured emails based on the content.',
-    compare: 'You compare options, listing pros/cons and a recommendation.',
-    custom: 'You are a versatile assistant that follows the user instructions precisely.'
+    summarize: 'Primary task: distill the source into the smallest useful set of high-signal takeaways, decisions, risks, and next steps.',
+    prompt_generation: 'Primary task: turn the request and context into a high-leverage prompt that is specific, reusable, and ready to paste into another LLM.',
+    task_extraction: 'Primary task: extract concrete work items with owners, priorities, dependencies, and unresolved questions when possible.',
+    documentation: 'Primary task: produce clear, technically accurate documentation that is easy to scan and immediately usable.',
+    testing: 'Primary task: design a test plan that covers happy paths, edge cases, negative cases, regressions, and automation opportunities.',
+    code_review: 'Primary task: review the material like a senior engineer and lead with concrete findings, risks, regressions, and missing tests.',
+    user_story: 'Primary task: convert the material into crisp user stories with acceptance criteria and implementation notes.',
+    explain: 'Primary task: explain the material clearly, step by step, with the right level of depth for the request.',
+    translate_intent: 'Primary task: translate the content while preserving meaning, nuance, and important terminology.',
+    email_draft: 'Primary task: draft a clear, professional email that is ready to send with minimal editing.',
+    compare: 'Primary task: compare options fairly, surface tradeoffs, and end with a concrete recommendation when warranted.',
+    custom: 'Primary task: follow the user request precisely and produce the most useful output for the current page context.'
   };
 
   const base = baseByIntent[intent] || baseByIntent.custom;
   const templateNote = buildTemplateInstruction(templateId);
-  const toneNote = tone && tone !== 'auto' ? ` Tone: ${tone}.` : '';
-  const formatNote =
-    outputFormat === 'plain'
-      ? ' Respond in clear plain text, no markdown.'
-      : outputFormat === 'structured'
-      ? ' Prefer structured output with headings, bullet lists, and tables where helpful.'
-      : ' Respond in well-formatted Markdown suitable for docs or notes.';
+  const toneNote = buildToneInstruction(tone);
+  const formatNote = buildFormatInstruction(outputFormat);
 
-  return `${base}${templateNote}${toneNote}${formatNote}`;
+  return [
+    'You are Briefly, a high-judgment browser copilot.',
+    base,
+    'General rules:',
+    '- Prioritize the user\'s explicit request over page context when they conflict.',
+    '- Treat selected text as the highest-priority evidence, then code snippets, then the visible page snapshot.',
+    '- Use page context aggressively when it improves precision, but do not claim facts that are not present.',
+    '- Keep the answer dense with signal. Avoid filler, repetition, and generic advice.',
+    '- If context is incomplete, state the assumption briefly instead of hallucinating specifics.',
+    '- Preserve important names, identifiers, statuses, and technical details exactly when present.',
+    '- When reviewing code or technical content, be concrete and evidence-based.',
+    templateNote,
+    toneNote,
+    formatNote
+  ].filter(Boolean).join('\n');
 }
 
 function buildTemplateInstruction(templateId) {
   const templateInstructions = {
-    general_assistant: ' Act like a strong browser copilot. Use the page context when it improves the answer and call out assumptions when context is incomplete.',
-    bug_report: ' Produce a bug report with sections for summary, impact, steps to reproduce, expected result, actual result, likely cause, environment, and open questions.',
-    pr_review: ' Review the material like a pull request. Lead with concrete findings, risks, regressions, and missing tests. Keep summaries brief.',
-    test_plan: ' Produce a QA test plan with objectives, happy paths, edge cases, negative cases, automation candidates, and data/setup needs.',
-    product_spec: ' Produce a product spec with problem, users, goals, non-goals, flows, edge cases, dependencies, launch risks, and success metrics.',
-    release_notes: ' Produce release notes with a crisp headline, customer-facing highlights, operational notes, risks, and rollout/follow-up items.',
-    customer_reply: ' Draft a concise, empathetic customer-facing response with next steps and a clear ask if more information is needed.'
+    general_assistant: [
+      'Output contract:',
+      '- Answer the user directly.',
+      '- Organize the response into the smallest useful structure.',
+      '- End with recommended next steps when the context implies action.'
+    ].join('\n'),
+    bug_report: [
+      'Output contract for bug reports:',
+      '- Use sections for Summary, Impact, Steps to Reproduce, Expected Result, Actual Result, Evidence, Likely Cause, Environment, and Open Questions.',
+      '- Distinguish confirmed facts from inferred causes.',
+      '- If reproduction details are incomplete, produce the best draft possible and label the missing information clearly.'
+    ].join('\n'),
+    pr_review: [
+      'Output contract for PR/code reviews:',
+      '- Start with Findings and order them by severity.',
+      '- Each finding should explain the risk, why it matters, and what is missing or broken.',
+      '- After findings, include Open Questions or Residual Risks only if needed.',
+      '- If there are no substantive findings, say so explicitly and mention testing gaps or confidence limits.'
+    ].join('\n'),
+    test_plan: [
+      'Output contract for test plans:',
+      '- Use sections for Objective, Scope, Happy Paths, Edge Cases, Negative Cases, Regression Risks, Automation Candidates, and Setup/Data Needs.',
+      '- Include concrete scenarios, not just category names.',
+      '- Prioritize cases most likely to fail in production.'
+    ].join('\n'),
+    product_spec: [
+      'Output contract for product specs:',
+      '- Use sections for Problem, Users, Goals, Non-Goals, User Flows, Requirements, Edge Cases, Dependencies, Risks, and Success Metrics.',
+      '- Keep requirements testable and unambiguous.',
+      '- Call out unresolved decisions explicitly.'
+    ].join('\n'),
+    release_notes: [
+      'Output contract for release notes:',
+      '- Start with a short release headline.',
+      '- Include Customer Highlights, Operational Notes, Risks or Caveats, and Follow-up Items.',
+      '- Focus on what changed and why it matters to users or operators.'
+    ].join('\n'),
+    customer_reply: [
+      'Output contract for customer replies:',
+      '- Write as a polished message ready to send.',
+      '- Be concise, empathetic, and specific.',
+      '- Include the next step, any needed clarification, and avoid internal-only language.'
+    ].join('\n')
   };
 
   return templateInstructions[templateId] || templateInstructions.general_assistant;
@@ -490,35 +554,46 @@ function buildTemplateInstruction(templateId) {
 
 function buildUserMessage(transcript, context, settings = {}) {
   const sanitizedContext = sanitizePromptContext(context, settings);
-  const parts = [`User voice command or input:\n"${transcript}"`];
+  const parts = [
+    `User request:\n${transcript}`,
+    'Context priority:\n1. Selected text\n2. Code snippets\n3. Visible page snapshot\n4. Metadata such as headings, forms, and page type'
+  ];
   if (sanitizedContext?.selectedText) {
-    parts.push(`\nSelected text on page:\n"""\n${sanitizedContext.selectedText.slice(0, 1500)}\n"""`);
+    parts.push(`Selected text:\n"""\n${sanitizedContext.selectedText.slice(0, 1800)}\n"""`);
   }
   if (sanitizedContext?.visibleText && !sanitizedContext.selectedText) {
-    parts.push(`\nVisible page content (truncated):\n${sanitizedContext.visibleText.slice(0, 2000)}`);
+    parts.push(`Visible page snapshot:\n${sanitizedContext.visibleText.slice(0, 2200)}`);
   }
   if (sanitizedContext?.codeBlocks?.length) {
-    const code = sanitizedContext.codeBlocks.map(b => `[${b.lang}]\n${b.code}`).join('\n\n');
-    parts.push(`\nCode snippets on page:\n\`\`\`\n${code.slice(0, 2000)}\n\`\`\``);
+    const code = sanitizedContext.codeBlocks
+      .map((b, index) => `Snippet ${index + 1} [${b.lang || 'unknown'}]\n${b.code}`)
+      .join('\n\n');
+    parts.push(`Code snippets:\n\`\`\`\n${code.slice(0, 3200)}\n\`\`\``);
   }
   if (sanitizedContext?.headings?.length) {
-    parts.push(`\nPage headings: ${sanitizedContext.headings.map(h => h.text).join(' > ')}`);
+    parts.push(`Page headings:\n${sanitizedContext.headings.map(h => `- H${h.level}: ${h.text}`).join('\n')}`);
   }
   if (sanitizedContext?.formFields?.length) {
     const fieldSummary = sanitizedContext.formFields
       .map(field => `${field.label || field.type}: ${field.value}`)
       .join(' | ');
-    parts.push(`\nRelevant form fields: ${fieldSummary.slice(0, 1200)}`);
+    parts.push(`Relevant form fields:\n${fieldSummary.slice(0, 1200)}`);
+  }
+  if (sanitizedContext?.tool) {
+    parts.push(`Detected tool:\n${sanitizedContext.tool}`);
+  }
+  if (sanitizedContext?.structuredDataSummary) {
+    parts.push(`Structured page data:\n${sanitizedContext.structuredDataSummary}`);
   }
   if (sanitizedContext?.pageType && sanitizedContext.pageType !== 'general') {
-    parts.push(`\nDetected page type: ${sanitizedContext.pageType}`);
+    parts.push(`Detected page type:\n${sanitizedContext.pageType}`);
   }
-  if (sanitizedContext?.pageTitle) parts.push(`\nPage title: ${sanitizedContext.pageTitle}`);
-  if (sanitizedContext?.url) parts.push(`\nURL: ${sanitizedContext.url}`);
+  if (sanitizedContext?.pageTitle) parts.push(`Page title:\n${sanitizedContext.pageTitle}`);
+  if (sanitizedContext?.url) parts.push(`URL:\n${sanitizedContext.url}`);
   if (settings.redactSensitive) {
-    parts.push('\nSensitive strings have been redacted before sending this context.');
+    parts.push('Sensitive strings have been redacted before sending this context.');
   }
-  return parts.join('\n');
+  return parts.join('\n\n');
 }
 
 function sanitizePromptContext(context = {}, settings = {}) {
@@ -534,11 +609,13 @@ function sanitizePromptContext(context = {}, settings = {}) {
     pageTitle: context.pageTitle || '',
     url: context.url || '',
     pageType: context.pageType || 'general',
+    tool: context.domainContext?.tool || '',
     selectedText: context.selectedText || '',
     visibleText: selectionOnly ? '' : (context.visibleText || ''),
     codeBlocks: selectionOnly ? [] : (context.codeBlocks || []),
     headings: selectionOnly ? [] : (context.headings || []),
-    formFields: selectionOnly ? [] : (context.formFields || [])
+    formFields: selectionOnly ? [] : (context.formFields || []),
+    structuredDataSummary: selectionOnly ? '' : summarizeStructuredData(context.structuredData)
   };
 
   if (selectionOnly && !sanitized.selectedText) {
@@ -572,6 +649,48 @@ function redactSensitiveText(text) {
     .replace(/\b(sk|rk|pk|ghp|gho|ghu|AIza|xoxb|xoxp|xoxe|xoxr|lin_api)_[A-Za-z0-9_\-]{8,}\b/g, '[redacted-key]')
     .replace(/\b(?:Bearer\s+)?[A-Za-z0-9-_]{24,}\.[A-Za-z0-9-_]{12,}\.[A-Za-z0-9-_]{12,}\b/g, '[redacted-token]')
     .replace(/\b\d{12,19}\b/g, '[redacted-number]');
+}
+
+function buildToneInstruction(tone) {
+  if (!tone || tone === 'auto') return '';
+  return `Tone requirement:\n- Write in a ${tone} tone without becoming vague or wordy.`;
+}
+
+function buildFormatInstruction(outputFormat) {
+  if (outputFormat === 'plain') {
+    return 'Format requirement:\n- Return plain text only. No Markdown.';
+  }
+
+  if (outputFormat === 'structured') {
+    return 'Format requirement:\n- Use headings, bullets, and tables when they improve clarity.';
+  }
+
+  return 'Format requirement:\n- Return polished Markdown with concise headings and lists where helpful.';
+}
+
+function buildPageContextBlock(context = {}) {
+  const parts = [];
+  if (context.pageType) parts.push(`Page type: ${context.pageType}`);
+  if (context.pageTitle) parts.push(`Page title: ${context.pageTitle}`);
+  if (context.url) parts.push(`URL: ${context.url}`);
+  if (context.selectedText) parts.push(`Selected text:\n"""\n${context.selectedText.slice(0, 1500)}\n"""`);
+  if (context.codeBlocks?.length) {
+    const code = context.codeBlocks
+      .map((block, index) => `Snippet ${index + 1} [${block.lang || 'unknown'}]\n${block.code}`)
+      .join('\n\n');
+    parts.push(`Code snippets:\n\`\`\`\n${code.slice(0, 2600)}\n\`\`\``);
+  }
+  if (context.visibleText) parts.push(`Visible snapshot:\n${context.visibleText.slice(0, 1600)}`);
+  return parts.length ? `Page context:\n${parts.join('\n\n')}` : '';
+}
+
+function summarizeStructuredData(structuredData) {
+  if (!structuredData || typeof structuredData !== 'object') return '';
+
+  const compact = JSON.stringify(structuredData);
+  if (!compact || compact === '{}') return '';
+
+  return compact.slice(0, 1200);
 }
 
 async function transcribeWithOpenAI(audioBlob, apiKey, language, signal) {
