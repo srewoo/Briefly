@@ -81,8 +81,8 @@
     <div class="section-card">
       <p><strong>1. Open the side panel</strong> – click the Productify icon or use the keyboard shortcut defined in Chrome.</p>
       <p><strong>2. Record</strong> – click the mic button or hold <span class="kbd">Space</span> while the panel is focused, then speak.</p>
-      <p><strong>3. Transcribe</strong> – audio is sent to your selected Speech‑to‑Text provider (OpenAI, Google, or ElevenLabs).</p>
-      <p><strong>4. Generate</strong> – the transcript plus page context is sent to the backend, which uses GPT‑4o to produce the result.</p>
+      <p><strong>3. Transcribe</strong> – audio is sent directly from the extension to your selected Speech‑to‑Text provider (OpenAI, Google, or ElevenLabs).</p>
+      <p><strong>4. Generate</strong> – the transcript plus page context is sent directly from the extension to an LLM (OpenAI), which produces the result.</p>
       <p><strong>5. Use the output</strong> – copy it, refine it, export it, or send it to Notion, GitHub, Jira, Linear, Slack, or a webhook.</p>
     </div>
 
@@ -115,8 +115,8 @@
     <h2>Troubleshooting</h2>
     <ul>
       <li><strong>“Microphone Access Denied”</strong> – check Chrome’s mic settings and macOS Privacy &amp; Security → Microphone.</li>
-      <li><strong>“Processing Failed”</strong> – verify your backend URL and OpenAI key in <strong>Settings → API Keys</strong> and make sure the backend server is running.</li>
-      <li><strong>No output</strong> – ensure your STT provider key is set (Google / ElevenLabs) or Whisper is allowed for your OpenAI project.</li>
+      <li><strong>“Processing Failed”</strong> – verify your OpenAI key in <strong>Settings → API Keys</strong> and that you have access to the configured models.</li>
+      <li><strong>No output</strong> – ensure your STT provider key is set (Google / ElevenLabs) or transcription models are allowed for your OpenAI project.</li>
     </ul>
   </main>
 </body>

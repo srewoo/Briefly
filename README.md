@@ -9,14 +9,14 @@
 | Feature | Details |
 |---------|---------|
 | 🎙️ Push-to-Talk + Toggle | Hold `Space` or click mic to record |
-| 🤖 Dual STT | OpenAI Whisper (primary) + Google STT (alternative) |
+| 🤖 Browser-Only STT | OpenAI Whisper / GPT‑4o transcribe, Google STT, or ElevenLabs — all called directly from the extension |
 | 🧠 12 Intents | Summarize, Prompt Gen, Tasks, Docs, Testing, Code Review, User Story, Explain, Translate, Email, Compare, Custom |
 | 📄 Full Context | Extracts: selection, code blocks, headings, structured data, forms, domain detection |
-| ⚡ Streaming Output | SSE word-by-word streaming from GPT-4o |
+| ⚡ GPT‑4o Output | Generates structured output (prompts, specs, tasks, docs) directly from the browser |
 | 🌙 Dark/Light Theme | Glassmorphism design, smooth theme toggle |
 | 📜 History | Last 50 outputs stored locally, searchable |
 | ⭐ Prompt Library | Save, tag, search, and star reusable prompts |
-| 🔗 Integrations | Notion, GitHub, Jira, Linear, Slack, Confluence, Webhook |
+| 🔗 Integrations | Notion, GitHub, Jira, Linear, Slack, Webhook (optional, all from the extension) |
 | ↩️ Refine | Follow-up voice or text command to iterate on output |
 | 🔑 BYOK | All API keys encrypted with AES-256-GCM on your device |
 
@@ -33,22 +33,13 @@
 # Select: /path/to/productify/productify/
 ```
 
-### 2. Start the Backend Server
-
-```bash
-cd server
-npm install
-cp .env.example .env
-npm run dev
-# Server starts at http://localhost:3000
-```
-
-### 3. Configure API Keys
+### 2. Configure API Keys
 
 On first launch, the onboarding flow will guide you through:
 1. Granting microphone permission
 2. Adding your **OpenAI API key** (required — for Whisper + GPT-4o)
-3. Optionally adding a **Google STT key** for alternative provider
+3. Optionally adding a **Google STT** key as an alternative provider
+4. Optionally adding an **ElevenLabs** key for their STT
 
 Or go to **Settings** in the side panel at any time.
 
@@ -76,19 +67,8 @@ productify/                 ← Chrome Extension (load unpacked from here)
 │   ├── design-tokens.css / animations.css / themes.css
 └── onboarding/              ← First-run 6-step tutorial
 
-server/                      ← Node.js Express Backend
-├── index.js                 ← Entry point
-├── routes/
-│   ├── transcribe.js        ← POST /transcribe (Whisper + Google STT)
-│   ├── process.js           ← POST /process (GPT-4o SSE streaming)  
-│   ├── intents.js           ← GET /intents
-│   ├── library.js           ← /library CRUD
-│   └── health.js            ← GET /health
-├── services/
-│   ├── intentService.js     ← LLM-based intent classification
-│   └── contextEnricher.js   ← Context pre-processing
-├── prompts/                 ← 12 LLM system prompt templates
-└── middleware/              ← Auth, rate limiting, error handling
+serverBKP/                   ← (Optional / legacy) Node.js backend used in early versions.  
+                             Not required for the extension to work; all AI calls now happen in the browser.
 ```
 
 ---
@@ -102,7 +82,6 @@ server/                      ← Node.js Express Backend
 | `Space` (hold, in panel) | Push-to-talk |
 | `⌘⇧C` | Copy last output |
 | `⌘⇧H` | Toggle history |
-| `⌘⇧R` | Retry last command |
 | `Esc` | Cancel recording |
 
 ---
@@ -134,23 +113,9 @@ Connect via **Settings → Integrations**:
 ## Development
 
 ```bash
-# Backend with hot reload
-cd server && npm run dev
-
 # Extension: just reload unpacked in chrome://extensions after changes
-# (No build step needed — vanilla JS + CSS)
+# (No build step needed — all logic runs in the browser)
 ```
-
-### Backend API
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Server status |
-| `/transcribe` | POST | Audio → text (Whisper/Google STT) |
-| `/process` | POST | Transcript → SSE-streamed output |
-| `/process/refine` | POST | Refine previous output |
-| `/intents` | GET | All 12 intent definitions |
-| `/library` | GET/POST/PUT/DELETE | Prompt library CRUD |
 
 ---
 

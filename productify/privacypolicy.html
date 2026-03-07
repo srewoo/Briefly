@@ -62,7 +62,7 @@
     <h2>What the extension stores locally</h2>
     <p>The extension stores the following data <strong>only in your browser&apos;s local storage</strong>:</p>
     <ul>
-      <li>Settings such as chosen STT provider, language, tone, output format, theme, and backend URL.</li>
+      <li>Settings such as chosen STT provider, language, tone, output format, and theme.</li>
       <li>History of transcripts and generated outputs (so you can restore past runs).</li>
       <li>Prompt library items you star/save.</li>
       <li>Encrypted API keys for third‑party services (e.g. OpenAI, Google STT, ElevenLabs, Notion, GitHub, Jira, Linear, Slack, webhook URL).</li>
@@ -72,24 +72,24 @@
     <h2>Microphone and audio data</h2>
     <ul>
       <li>Productify accesses your microphone only when you explicitly start a recording.</li>
-      <li>Audio is captured in an offscreen document, converted to an audio file, and sent to your configured backend server for transcription.</li>
+      <li>Audio is captured in an offscreen document, converted to an audio file, and sent directly from the extension to the Speech‑to‑Text provider you configured (OpenAI, Google, or ElevenLabs).</li>
       <li>No raw audio is permanently stored by the extension; only the resulting text transcript is kept in history.</li>
     </ul>
 
-    <h2>Data sent to your backend and AI providers</h2>
-    <p>When you use Productify, the extension sends the following to your configured backend URL:</p>
+    <h2>Data sent to AI providers</h2>
+    <p>When you use Productify, the extension sends the following to the AI APIs you configure:</p>
     <ul>
       <li>The audio recording (for Speech‑to‑Text).</li>
       <li>The transcript text.</li>
       <li>Optional page context, such as page title, URL, selected text, visible text, code blocks, headings, and limited structured data.</li>
       <li>Your chosen intent (e.g. summarize, documentation, testing) and output preferences.</li>
     </ul>
-    <p>The backend then forwards data to providers you configure, such as OpenAI, Google Speech‑to‑Text, or ElevenLabs, using your API keys. Those requests are made directly from the backend server that you run and control.</p>
+    <p>These requests are made directly from your browser to providers such as OpenAI, Google Speech‑to‑Text, or ElevenLabs using API keys you supply in the extension settings.</p>
 
     <h2>API keys and credentials</h2>
     <ul>
-      <li>API keys you enter are encrypted and stored in Chrome local storage; they are not transmitted to any third party except the backend you configure.</li>
-      <li>The backend uses your keys only to call the services you enabled (for example, OpenAI, Google STT, ElevenLabs, Notion, GitHub, Jira, Linear, Slack).</li>
+      <li>API keys you enter are encrypted and stored in Chrome local storage; they are only used by the extension to call the services you configure.</li>
+      <li>The extension uses your keys only to call selected providers (for example, OpenAI, Google STT, ElevenLabs, Notion, GitHub, Jira, Linear, Slack).</li>
       <li>You can clear stored keys by clearing data from the extension or by resetting Chrome&apos;s site data for the extension.</li>
     </ul>
 
@@ -99,14 +99,14 @@
     <h2>Data retention</h2>
     <ul>
       <li>History and library entries remain in your browser until you delete them or use the clear‑data option.</li>
-      <li>The backend and third‑party providers may retain logs or content according to their own retention settings and configurations.</li>
+      <li>Third‑party providers may retain logs or content according to their own retention settings and configurations.</li>
     </ul>
 
     <h2>Security</h2>
     <ul>
       <li>The extension uses browser storage and the Web Crypto API to encrypt API keys before storing them.</li>
       <li>No credentials are hard‑coded into the extension source; you provide and control all keys.</li>
-      <li>For production use, you should run the backend over HTTPS and secure server access appropriately.</li>
+      <li>You should keep your API keys secret and rotate them regularly following provider best practices.</li>
     </ul>
 
     <h2>Your choices</h2>

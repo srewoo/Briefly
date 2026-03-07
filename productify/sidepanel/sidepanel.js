@@ -110,7 +110,6 @@ async function loadSettings() {
     language: 'auto',
     tone: 'auto',
     outputFormat: 'markdown',
-    backendUrl: 'http://localhost:3000',
     theme: 'dark',
     ...settings
   };
@@ -119,8 +118,7 @@ async function loadSettings() {
     'stt-provider': State.settings.sttProvider,
     'stt-language': State.settings.language,
     'output-tone': State.settings.tone,
-    'output-format': State.settings.outputFormat,
-    'backend-url': State.settings.backendUrl
+    'output-format': State.settings.outputFormat
   };
   for (const [id, val] of Object.entries(fields)) {
     const el = document.getElementById(id);
@@ -650,8 +648,7 @@ async function saveSettings() {
     sttProvider: document.getElementById('stt-provider').value,
     language: document.getElementById('stt-language').value,
     tone: document.getElementById('output-tone').value,
-    outputFormat: document.getElementById('output-format').value,
-    backendUrl: document.getElementById('backend-url').value.trim()
+    outputFormat: document.getElementById('output-format').value
   };
   await chrome.storage.local.set({ settings: { ...State.settings, ...settings } });
   State.settings = { ...State.settings, ...settings };

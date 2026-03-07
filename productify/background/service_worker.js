@@ -13,7 +13,6 @@ import './outputRouter.js';
 // ─────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────
-const BACKEND_URL_KEY = 'settings';
 const OFFSCREEN_URL = chrome.runtime.getURL('offscreen/offscreen.html');
 
 let pendingAudioResolve = null;
@@ -210,11 +209,6 @@ async function handleMessage(msg, sender, sendResponse) {
 // ─────────────────────────────────────────────────────────────────
 // API FUNCTIONS
 // ─────────────────────────────────────────────────────────────────
-async function getBackendUrl() {
-  const { settings = {} } = await chrome.storage.local.get('settings');
-  return settings.backendUrl || 'http://localhost:3000';
-}
-
 async function getDecryptedKey(name) {
   const { encryptedKeys = {}, cryptoKeyRaw } = await chrome.storage.local.get(['encryptedKeys', 'cryptoKeyRaw']);
   const encrypted = encryptedKeys[name];
@@ -230,7 +224,6 @@ async function getDecryptedKey(name) {
 }
 
 async function transcribeAudio(audioDataUrl, mimeType) {
-  const backendUrl = await getBackendUrl();
   const { settings = {} } = await chrome.storage.local.get('settings');
   
   // Convert data URL to blob
@@ -240,11 +233,6 @@ async function transcribeAudio(audioDataUrl, mimeType) {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const audioBlob = new Blob([bytes], { type: mimeType });
 
-  const formData = new FormData();
-  formData.append('audio', audioBlob, 'recording.webm');
-  formData.append('provider', settings.sttProvider || 'whisper');
-  formData.append('language', settings.language || 'auto');
-
   const openaiKey = await getDecryptedKey('openai');
   const googleKey = await getDecryptedKey('googleStt');
   const elevenKey = await getDecryptedKey('elevenStt');
@@ -253,24 +241,21 @@ async function transcribeAudio(audioDataUrl, mimeType) {
   const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const res = await fetch(`${backendUrl}/transcribe`, {
-      method: 'POST',
-      headers: {
-        'x-openai-key': openaiKey,
-        'x-google-stt-key': googleKey,
-        'x-elevenlabs-key': elevenKey
-      },
-      body: formData,
-      signal: controller.signal
-    });
-    clearTimeout(timeout);
+    const provider = settings.sttProvider || 'whisper';
+    let transcript = '';
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      throw new Error(err.error || `Transcription failed: ${res.status}`);
+    if (provider === 'google' && googleKey) {
+      transcript = await transcribeWithGoogleStt(audioBlob, mimeType, googleKey, settings.language || 'auto', controller.signal);
+    } else if (provider === 'elevenlabs' && elevenKey) {
+      transcript = await transcribeWithElevenLabs(audioBlob, mimeType, elevenKey, settings.language || 'auto', controller.signal);
+    } else {
+      // Default to OpenAI transcription
+      if (!openaiKey) throw new Error('OpenAI API key required for transcription.');
+      transcript = await transcribeWithOpenAI(audioBlob, openaiKey, settings.language || 'auto', controller.signal);
     }
-    const data = await res.json();
-    return data.transcript || '';
+
+    clearTimeout(timeout);
+    return transcript;
   } catch (err) {
     clearTimeout(timeout);
     if (err.name === 'AbortError') throw new Error('Transcription timed out. Try again.');
@@ -279,92 +264,59 @@ async function transcribeAudio(audioDataUrl, mimeType) {
 }
 
 async function processTranscript({ transcript, context, localIntent, overrideIntent }) {
-  const backendUrl = await getBackendUrl();
   const { settings = {} } = await chrome.storage.local.get('settings');
   const openaiKey = await getDecryptedKey('openai');
-
-  const payload = {
-    transcript,
-    context: {
-      pageTitle: context?.pageTitle || '',
-      url: context?.url || '',
-      selectedText: context?.selectedText || '',
-      visibleText: context?.visibleText || '',
-      codeBlocks: context?.codeBlocks || [],
-      headings: context?.headings || [],
-      domainContext: context?.domainContext || {},
-      pageType: context?.pageType || 'general'
-    },
-    intent: overrideIntent || null,
-    localIntent,
-    tone: settings.tone || 'auto',
-    outputFormat: settings.outputFormat || 'markdown',
-    language: settings.language || 'auto'
-  };
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000);
 
   try {
-    const res = await fetch(`${backendUrl}/process`, {
+    if (!openaiKey) throw new Error('OpenAI API key required for processing.');
+
+    const intent = overrideIntent || localIntent?.primary_intent || 'custom';
+    const tone = settings.tone || 'auto';
+    const outputFormat = settings.outputFormat || 'markdown';
+
+    const systemPrompt = buildSystemPrompt(intent, tone, outputFormat);
+    const userMessage = buildUserMessage(transcript, context);
+
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-openai-key': openaiKey,
-        'Accept': 'text/event-stream'
+        'Authorization': `Bearer ${openaiKey}`
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0.7,
+        max_tokens: 2000,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage }
+        ]
+      }),
       signal: controller.signal
     });
     clearTimeout(timeout);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      throw new Error(err.error || `Processing failed: ${res.status}`);
+      throw new Error(err.error?.message || err.error || `Processing failed: ${res.status}`);
     }
 
-    // Handle SSE stream
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let fullOutput = '';
-    let buffer = '';
+    const data = await res.json();
+    const fullOutput = data.choices?.[0]?.message?.content || '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6).trim();
-          if (data === '[DONE]') {
-            broadcastToPanel({ type: 'GENERATION_COMPLETE', output: fullOutput });
-            lastOutput = fullOutput;
-            // Save to history
-            await saveToHistory({ transcript, output: fullOutput, context, intent: localIntent?.primary_intent || 'custom' });
-            return;
-          }
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.type === 'intent') {
-              broadcastToPanel({ type: 'INTENT_SERVER', intent: parsed.intent });
-            } else if (parsed.type === 'chunk') {
-              fullOutput += parsed.text;
-              broadcastToPanel({ type: 'STREAM_CHUNK', text: parsed.text });
-            } else if (parsed.type === 'error') {
-              throw new Error(parsed.message);
-            }
-          } catch (parseErr) {
-            // Non-JSON SSE line — append as raw text
-            if (data && data !== '[DONE]') {
-              fullOutput += data;
-              broadcastToPanel({ type: 'STREAM_CHUNK', text: data });
-            }
-          }
-        }
-      }
+    if (fullOutput) {
+      broadcastToPanel({ type: 'STREAM_CHUNK', text: fullOutput });
+      broadcastToPanel({ type: 'GENERATION_COMPLETE', output: fullOutput });
+      lastOutput = fullOutput;
+      await saveToHistory({
+        transcript,
+        output: fullOutput,
+        context,
+        intent: intent
+      });
     }
   } catch (err) {
     clearTimeout(timeout);
@@ -374,51 +326,193 @@ async function processTranscript({ transcript, context, localIntent, overrideInt
 }
 
 async function refineOutput({ refinement, previousOutput, context, transcript }) {
-  const backendUrl = await getBackendUrl();
   const openaiKey = await getDecryptedKey('openai');
-  const { settings = {} } = await chrome.storage.local.get('settings');
+  if (!openaiKey) throw new Error('OpenAI API key required for refinement.');
 
-  const res = await fetch(`${backendUrl}/process/refine`, {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-openai-key': openaiKey,
-      'Accept': 'text/event-stream'
+      'Authorization': `Bearer ${openaiKey}`
     },
-    body: JSON.stringify({ refinement, previousOutput, transcript, context, settings })
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      temperature: 0.7,
+      max_tokens: 2000,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a helpful AI assistant that refines and improves previously generated content based on user feedback. Maintain the same format and style unless asked to change it.'
+        },
+        { role: 'user', content: `Original request / context: "${transcript || 'unknown'}"\n\nPage context (optional): ${JSON.stringify(context || {}, null, 2)}` },
+        { role: 'assistant', content: previousOutput || '' },
+        { role: 'user', content: refinement ? `Please refine: ${refinement}` : 'Please improve this output.' }
+      ]
+    })
   });
 
   if (!res.ok) throw new Error(`Refine failed: ${res.status}`);
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let fullOutput = '';
-  let buffer = '';
+  const data = await res.json();
+  const fullOutput = data.choices?.[0]?.message?.content || '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') {
-          broadcastToPanel({ type: 'GENERATION_COMPLETE', output: fullOutput });
-          lastOutput = fullOutput;
-          break;
-        }
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.type === 'chunk') {
-            fullOutput += parsed.text;
-            broadcastToPanel({ type: 'STREAM_CHUNK', text: parsed.text });
-          }
-        } catch (_) {}
-      }
-    }
+  if (fullOutput) {
+    broadcastToPanel({ type: 'STREAM_CHUNK', text: fullOutput });
+    broadcastToPanel({ type: 'GENERATION_COMPLETE', output: fullOutput });
+    lastOutput = fullOutput;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// LOCAL PROMPTS (client-side)
+// ─────────────────────────────────────────────────────────────────
+function buildSystemPrompt(intent, tone, outputFormat) {
+  const baseByIntent = {
+    summarize: 'You summarize content into clear, concise bullet points and sections.',
+    prompt_generation: 'You turn user ideas into high quality, copy-pastable prompts for powerful LLMs.',
+    task_extraction: 'You extract actionable tasks, with clear owners and priorities, from the given content.',
+    documentation: 'You write clean, structured technical documentation and README-style guides.',
+    testing: 'You design test cases, scenarios, and edge cases for the described feature or code.',
+    code_review: 'You perform code reviews, highlight issues, and suggest improvements.',
+    user_story: 'You convert ideas into user stories with acceptance criteria.',
+    explain: 'You explain concepts step by step in simple language.',
+    translate_intent: 'You translate the content while preserving meaning and tone.',
+    email_draft: 'You draft professional, well-structured emails based on the content.',
+    compare: 'You compare options, listing pros/cons and a recommendation.',
+    custom: 'You are a versatile assistant that follows the user instructions precisely.'
+  };
+
+  const base = baseByIntent[intent] || baseByIntent.custom;
+  const toneNote = tone && tone !== 'auto' ? ` Tone: ${tone}.` : '';
+  const formatNote =
+    outputFormat === 'plain'
+      ? ' Respond in clear plain text, no markdown.'
+      : outputFormat === 'structured'
+      ? ' Prefer structured output with headings, bullet lists, and tables where helpful.'
+      : ' Respond in well-formatted Markdown suitable for docs or notes.';
+
+  return `${base}${toneNote}${formatNote}`;
+}
+
+function buildUserMessage(transcript, context) {
+  const parts = [`User voice command or input:\n"${transcript}"`];
+  if (context?.selectedText) {
+    parts.push(`\nSelected text on page:\n"""\n${context.selectedText.slice(0, 1500)}\n"""`);
+  }
+  if (context?.visibleText && !context.selectedText) {
+    parts.push(`\nVisible page content (truncated):\n${context.visibleText.slice(0, 2000)}`);
+  }
+  if (context?.codeBlocks?.length) {
+    const code = context.codeBlocks.map(b => `[${b.lang}]\n${b.code}`).join('\n\n');
+    parts.push(`\nCode snippets on page:\n\`\`\`\n${code.slice(0, 2000)}\n\`\`\``);
+  }
+  if (context?.headings?.length) {
+    parts.push(`\nPage headings: ${context.headings.map(h => h.text).join(' > ')}`);
+  }
+  if (context?.pageType && context.pageType !== 'general') {
+    parts.push(`\nDetected page type: ${context.pageType}`);
+  }
+  if (context?.pageTitle) parts.push(`\nPage title: ${context.pageTitle}`);
+  if (context?.url) parts.push(`\nURL: ${context.url}`);
+  return parts.join('\n');
+}
+
+async function transcribeWithOpenAI(audioBlob, apiKey, language, signal) {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'recording.webm');
+  const model = 'gpt-4o-mini-transcribe';
+  formData.append('model', model);
+  if (language && language !== 'auto') {
+    formData.append('language', language);
+  }
+
+  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: formData,
+    signal
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `OpenAI transcription error: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.text || '';
+}
+
+async function transcribeWithGoogleStt(audioBlob, mimeType, apiKey, language, signal) {
+  const arrayBuffer = await audioBlob.arrayBuffer();
+  const body = {
+    config: {
+      encoding: mimeType && mimeType.includes('webm') ? 'WEBM_OPUS' : 'LINEAR16',
+      sampleRateHertz: 16000,
+      languageCode: language === 'auto' ? 'en-US' : language,
+      enableAutomaticPunctuation: true,
+      model: 'latest_long'
+    },
+    audio: { content: btoa(String.fromCharCode(...new Uint8Array(arrayBuffer))) }
+  };
+
+  const res = await fetch(`https://speech.googleapis.com/v1/speech:recognize?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Google STT error: ${res.status}`);
+  }
+  const data = await res.json();
+  return (
+    data.results
+      ?.map(r => r.alternatives?.[0]?.transcript || '')
+      .join(' ')
+      .trim() || ''
+  );
+}
+
+async function transcribeWithElevenLabs(audioBlob, mimeType, apiKey, language, signal) {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'recording.webm');
+  formData.append('model_id', 'scribe_v2');
+  if (language && language !== 'auto') {
+    formData.append('language_code', language);
+  }
+
+  const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+    method: 'POST',
+    headers: {
+      'xi-api-key': apiKey
+    },
+    body: formData,
+    signal
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    let parsed;
+    try {
+      parsed = errText ? JSON.parse(errText) : {};
+    } catch {
+      parsed = {};
+    }
+    const message =
+      parsed.error ||
+      parsed.message ||
+      parsed.detail?.message ||
+      parsed.detail ||
+      errText ||
+      `ElevenLabs STT error: ${res.status}`;
+    throw new Error(message);
+  }
+
+  const data = await res.json();
+  return data.text || data.transcript || '';
 }
 
 async function getPageContext() {

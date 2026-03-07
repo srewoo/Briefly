@@ -10,6 +10,8 @@ pnpm-debug.log*
 .env.*.local
 server/.env
 server/.env.local
+serverBKP/.env
+serverBKP/.env.local
 
 # Logs
 logs/
@@ -32,4 +34,7 @@ coverage/
 # Chrome extension build artifacts (if added later)
 productify/*.zip
 productify/dist/
+
+# Legacy backend (optional)
+serverBKP/node_modules/
 
