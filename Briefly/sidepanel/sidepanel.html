@@ -170,6 +170,19 @@
         <button class="action-btn" id="btn-export"><span>Export</span></button>
         <button class="action-btn" id="btn-integrate"><span>Review & Send</span></button>
         <button class="action-btn action-btn-refine" id="btn-refine"><span>Refine</span></button>
+        <button class="action-btn" id="btn-regenerate" title="Regenerate with different settings"><span>Regen</span></button>
+      </div>
+
+      <div class="feedback-bar" id="feedback-bar" style="display:none">
+        <span class="feedback-label">Was this helpful?</span>
+        <button class="feedback-btn" id="btn-feedback-up" title="Good output" aria-label="Thumbs up">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+        </button>
+        <button class="feedback-btn" id="btn-feedback-down" title="Poor output" aria-label="Thumbs down">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/></svg>
+        </button>
+        <input type="text" id="feedback-note" class="feedback-note" placeholder="Optional: what was wrong?" style="display:none" />
+        <button class="feedback-btn" id="btn-feedback-submit" style="display:none" aria-label="Submit feedback">Send</button>
       </div>
 
       <div class="refine-section" id="refine-section" style="display:none">
@@ -356,6 +369,7 @@
           </div>
           <div class="toggle-stack">
             <label class="switch-row"><input type="checkbox" id="pref-use-page-context" /><span>Send page context with prompts</span></label>
+            <label class="switch-row"><input type="checkbox" id="pref-autorefresh-context" /><span>Auto-refresh context when tab or page changes</span></label>
             <label class="switch-row"><input type="checkbox" id="pref-selection-only" /><span>Prefer selected text over full page context</span></label>
             <label class="switch-row"><input type="checkbox" id="pref-use-vision-context" /><span>Attach a screenshot when the visible page matters</span></label>
             <label class="switch-row"><input type="checkbox" id="pref-redact-sensitive" /><span>Redact keys, tokens, emails, and long numbers before generation</span></label>
@@ -363,15 +377,74 @@
         </div>
 
         <div class="settings-group panel-card compact-card">
+          <h3 class="settings-group-title">LLM provider</h3>
+          <div class="settings-grid two-col">
+            <div class="settings-field">
+              <label class="field-label" for="llm-provider">AI model provider</label>
+              <select id="llm-provider" class="field-select">
+                <option value="openai">OpenAI (GPT-4.1)</option>
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="gemini">Google (Gemini)</option>
+                <option value="ollama">Ollama (Local / Free)</option>
+              </select>
+            </div>
+            <div class="settings-field" id="ollama-settings" style="display:none">
+              <label class="field-label" for="ollama-endpoint">Ollama endpoint</label>
+              <input type="url" id="ollama-endpoint" class="field-input" placeholder="http://localhost:11434" />
+            </div>
+            <div class="settings-field" id="ollama-model-field" style="display:none">
+              <label class="field-label" for="ollama-model">Ollama model</label>
+              <input type="text" id="ollama-model" class="field-input" placeholder="llama3" />
+            </div>
+          </div>
+          <p class="field-hint" id="llm-provider-hint">Your API key is encrypted and never leaves your browser.</p>
+        </div>
+
+        <div class="settings-group panel-card compact-card">
+          <h3 class="settings-group-title">Usage & cost tracking</h3>
+          <div class="usage-dashboard" id="usage-dashboard">
+            <div class="usage-stat">
+              <span class="usage-stat-value" id="usage-total-cost">$0.00</span>
+              <span class="usage-stat-label">This month</span>
+            </div>
+            <div class="usage-stat">
+              <span class="usage-stat-value" id="usage-total-requests">0</span>
+              <span class="usage-stat-label">Requests</span>
+            </div>
+            <div class="usage-stat">
+              <span class="usage-stat-value" id="usage-total-tokens">0</span>
+              <span class="usage-stat-label">Tokens</span>
+            </div>
+          </div>
+          <div class="settings-grid two-col">
+            <div class="settings-field">
+              <label class="field-label" for="cost-budget">Monthly budget ($)</label>
+              <input type="number" id="cost-budget" class="field-input" placeholder="0 = no limit" min="0" step="1" />
+            </div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn-ghost" id="btn-clear-usage">Reset usage data</button>
+          </div>
+        </div>
+
+        <div class="settings-group panel-card compact-card">
           <h3 class="settings-group-title">Model and integration keys</h3>
           <div class="settings-field">
-            <label class="field-label" for="key-openai">OpenAI API key <span class="required-star">*</span></label>
+            <label class="field-label" for="key-openai">OpenAI API key</label>
             <div class="key-input-row">
               <input type="password" id="key-openai" class="field-input" placeholder="sk-..." autocomplete="off" />
               <button class="toggle-visibility-btn" data-target="key-openai" aria-label="Show or hide key">Show</button>
             </div>
           </div>
           <div class="settings-grid two-col">
+            <div class="settings-field">
+              <label class="field-label" for="key-anthropic">Anthropic API key</label>
+              <input type="password" id="key-anthropic" class="field-input" placeholder="sk-ant-..." autocomplete="off" />
+            </div>
+            <div class="settings-field">
+              <label class="field-label" for="key-gemini">Gemini API key</label>
+              <input type="password" id="key-gemini" class="field-input" placeholder="AIza..." autocomplete="off" />
+            </div>
             <div class="settings-field">
               <label class="field-label" for="key-google-stt">Google STT key</label>
               <input type="password" id="key-google-stt" class="field-input" placeholder="AIza..." autocomplete="off" />
@@ -446,6 +519,61 @@
         </div>
 
         <div class="settings-group panel-card compact-card">
+          <h3 class="settings-group-title">OAuth connections</h3>
+          <p class="field-hint">Connect integrations securely without manual token pasting. OAuth tokens are scoped and revocable.</p>
+          <div class="oauth-grid" id="oauth-grid">
+            <div class="oauth-row">
+              <span class="oauth-label">GitHub</span>
+              <span class="oauth-status" id="oauth-status-github">Not connected</span>
+              <button class="btn-secondary btn-sm" id="btn-oauth-github">Connect GitHub</button>
+            </div>
+            <div class="oauth-row">
+              <span class="oauth-label">Notion</span>
+              <span class="oauth-status" id="oauth-status-notion">Not connected</span>
+              <button class="btn-secondary btn-sm" id="btn-oauth-notion">Connect Notion</button>
+            </div>
+            <div class="oauth-row">
+              <span class="oauth-label">Slack</span>
+              <span class="oauth-status" id="oauth-status-slack">Not connected</span>
+              <button class="btn-secondary btn-sm" id="btn-oauth-slack">Connect Slack</button>
+            </div>
+          </div>
+          <p class="field-hint">OAuth requires a Briefly backend or self-hosted proxy. Manual tokens work without a backend.</p>
+        </div>
+
+        <div class="settings-group panel-card compact-card">
+          <h3 class="settings-group-title">Team & shared templates</h3>
+          <p class="field-hint">Import or export recipe templates to share with your team.</p>
+          <div class="settings-actions">
+            <button class="btn-secondary" id="btn-export-templates">Export templates</button>
+            <button class="btn-secondary" id="btn-import-templates">Import templates</button>
+            <button class="btn-secondary" id="btn-export-history">Export history</button>
+            <button class="btn-secondary" id="btn-import-history">Import history</button>
+          </div>
+          <input type="file" id="file-import-templates" accept=".json" style="display:none" />
+          <input type="file" id="file-import-history" accept=".json" style="display:none" />
+        </div>
+
+        <div class="settings-group panel-card compact-card">
+          <h3 class="settings-group-title">Advanced</h3>
+          <div class="settings-grid two-col">
+            <div class="settings-field">
+              <label class="field-label" for="history-limit">History limit</label>
+              <input type="number" id="history-limit" class="field-input" placeholder="500" min="10" max="5000" step="10" />
+            </div>
+            <div class="settings-field">
+              <label class="field-label" for="context-timeout">Context extraction timeout (ms)</label>
+              <input type="number" id="context-timeout" class="field-input" placeholder="2000" min="500" max="10000" step="100" />
+            </div>
+          </div>
+          <div class="toggle-stack">
+            <label class="switch-row"><input type="checkbox" id="pref-skip-heavy-pages" /><span>Skip full extraction on heavy pages (>50k DOM nodes)</span></label>
+            <label class="switch-row"><input type="checkbox" id="pref-feedback-enabled" /><span>Show output quality feedback buttons</span></label>
+            <label class="switch-row"><input type="checkbox" id="pref-cost-tracking" /><span>Track token usage and estimated costs</span></label>
+          </div>
+        </div>
+
+        <div class="settings-group panel-card compact-card">
           <h3 class="settings-group-title">Data and legal</h3>
           <div class="settings-actions">
             <button class="btn-secondary" id="btn-open-help">Open help</button>
@@ -504,6 +632,52 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="modal-regenerate" style="display:none">
+    <div class="modal modal-wide glass-panel animate-scale-in">
+      <h3 class="modal-title">Regenerate with different settings</h3>
+      <div class="modal-body">
+        <div class="settings-grid two-col">
+          <div class="settings-field">
+            <label class="field-label" for="regen-provider">LLM Provider</label>
+            <select id="regen-provider" class="field-select">
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic Claude</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="ollama">Ollama (Local)</option>
+            </select>
+          </div>
+          <div class="settings-field">
+            <label class="field-label" for="regen-quality">Quality</label>
+            <select id="regen-quality" class="field-select">
+              <option value="fast">Fast</option>
+              <option value="balanced">Balanced</option>
+              <option value="high_precision">High Precision</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button class="btn-primary" id="btn-confirm-regenerate">Regenerate</button>
+        <button class="btn-ghost" id="btn-close-regenerate">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-github-device-flow" style="display:none">
+    <div class="modal modal-wide glass-panel animate-scale-in">
+      <h3 class="modal-title">Connect GitHub</h3>
+      <div class="modal-body">
+        <p class="device-flow-instructions">Visit the link below and enter this code to authorize Briefly:</p>
+        <div class="device-code-display" id="device-flow-code">--------</div>
+        <a class="btn-primary device-flow-open-btn" id="btn-device-flow-open" href="https://github.com/login/device" target="_blank" rel="noopener">Open GitHub →</a>
+        <p class="device-flow-status" id="device-flow-status">Waiting for authorization…</p>
+      </div>
+      <div class="settings-actions">
+        <button class="btn-ghost" id="btn-close-device-flow">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toast-container"></div>
 
   <div class="error-overlay" id="error-overlay" style="display:none">
@@ -523,6 +697,6 @@
 <script src="../lib/crypto.js"></script>
 <script src="../lib/markdown.js"></script>
 <script src="../lib/i18n.js"></script>
-<script src="sidepanel.js"></script>
+<script type="module" src="sidepanel.js"></script>
 </body>
 </html>

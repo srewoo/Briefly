@@ -20,17 +20,73 @@ const OutputRouter = {
     const { encryptedKeys = {} } = await chrome.storage.local.get('encryptedKeys');
     const { settings = {} } = await chrome.storage.local.get('settings');
 
-    switch (target) {
-      case 'page':     return this.applyToPage(output, tabId, options);
-      case 'notion':   return this.sendToNotion(output, context, encryptedKeys);
-      case 'github':   return this.sendToGitHub(output, context, encryptedKeys, settings, options);
-      case 'jira':     return this.sendToJira(output, context, encryptedKeys, settings, options);
-      case 'linear':   return this.sendToLinear(output, context, encryptedKeys);
-      case 'slack':    return this.sendToSlack(output, context, encryptedKeys);
-      case 'confluence': return this.sendToConfluence(output, context, encryptedKeys, settings);
-      case 'webhook':  return this.sendToWebhook(output, context, settings, encryptedKeys);
-      default: throw new Error(`Unknown integration: ${target}`);
+    const handler = () => {
+      switch (target) {
+        case 'page':     return this.applyToPage(output, tabId, options);
+        case 'notion':   return this.sendToNotion(output, context, encryptedKeys);
+        case 'github':   return this.sendToGitHub(output, context, encryptedKeys, settings, options);
+        case 'jira':     return this.sendToJira(output, context, encryptedKeys, settings, options);
+        case 'linear':   return this.sendToLinear(output, context, encryptedKeys);
+        case 'slack':    return this.sendToSlack(output, context, encryptedKeys);
+        case 'confluence': return this.sendToConfluence(output, context, encryptedKeys, settings);
+        case 'webhook':  return this.sendToWebhook(output, context, settings, encryptedKeys);
+        default: throw new Error(`Unknown integration: ${target}`);
+      }
+    };
+
+    // Retry with exponential backoff for transient failures
+    return this._withRetry(handler, { maxRetries: 3, target });
+  },
+
+  async _withRetry(fn, { maxRetries = 3, target = '' } = {}) {
+    let lastError;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastError = err;
+        const status = this._extractHttpStatus(err);
+        // Only retry on transient errors (429, 5xx, network)
+        const isTransient = !status || status === 429 || status >= 500;
+        if (!isTransient || attempt === maxRetries) break;
+        const delay = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 10000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
+    throw this._enrichError(lastError, target);
+  },
+
+  _extractHttpStatus(err) {
+    const match = String(err?.message || '').match(/(\d{3})/);
+    return match ? parseInt(match[1], 10) : null;
+  },
+
+  _enrichError(err, target) {
+    const message = err?.message || 'Unknown error';
+    const status = this._extractHttpStatus(err);
+    const diagnostics = [];
+
+    if (status === 401 || status === 403) {
+      diagnostics.push(`Authentication failed for ${target}. Check your API key or token in Settings.`);
+    } else if (status === 404) {
+      diagnostics.push(`Resource not found. Verify your ${target} configuration (page ID, repo, project key).`);
+    } else if (status === 429) {
+      diagnostics.push(`Rate limited by ${target}. Wait a moment and try again.`);
+    } else if (status >= 500) {
+      diagnostics.push(`${target} service error (${status}). The service may be temporarily unavailable.`);
+    } else if (!status) {
+      diagnostics.push(`Network error reaching ${target}. Check your internet connection.`);
+    }
+
+    const enrichedMessage = diagnostics.length
+      ? `${message}\n\nDiagnostic: ${diagnostics.join(' ')}`
+      : message;
+
+    const enrichedError = new Error(enrichedMessage);
+    enrichedError.originalError = err;
+    enrichedError.target = target;
+    enrichedError.httpStatus = status;
+    return enrichedError;
   },
 
   async sendToNotion(output, context, encryptedKeys) {

@@ -35,30 +35,65 @@
     '.react-code-cell'
   ];
 
+  // ──────────────────────────────────────────────────────
+  // Performance budget: abort extraction if it takes too long
+  // ──────────────────────────────────────────────────────
+  const EXTRACTION_BUDGET_MS = 2000;
+  const HEAVY_PAGE_THRESHOLD = 50000; // DOM nodes
+  let lastExtractionDuration = 0;
+
+  function isHeavyPage() {
+    // Quick heuristic: count top-level + major container nodes
+    const nodeCount = document.querySelectorAll('*').length;
+    return nodeCount > HEAVY_PAGE_THRESHOLD;
+  }
+
+  function withBudget(fn, fallback) {
+    const start = performance.now();
+    try {
+      const remaining = EXTRACTION_BUDGET_MS - (performance.now() - extractionStartTime);
+      if (remaining <= 0) return fallback;
+      return fn();
+    } catch {
+      return fallback;
+    }
+  }
+
+  let extractionStartTime = 0;
+
   /**
-   * Extract all 10 context signals from the current page.
+   * Extract all 10 context signals from the current page with performance budgeting.
    * Returns a structured context object.
    */
   function extractPageContext() {
+    extractionStartTime = performance.now();
+    const heavy = isHeavyPage();
+
     const pageType = detectPageType();
-    const visibleTextLimit = getVisibleTextLimit(pageType);
+    const visibleTextLimit = heavy ? Math.min(getVisibleTextLimit(pageType), 800) : getVisibleTextLimit(pageType);
+
     const ctx = {
       pageTitle: document.title || '',
       url: window.location.href,
       domain: window.location.hostname,
       pageType,
       selectedText: getSelectedText(),
-      visibleText: getVisibleText(pageType, visibleTextLimit),
+      visibleText: withBudget(() => getVisibleText(pageType, visibleTextLimit), ''),
       visibleTextLimit,
-      codeBlocks: getCodeBlocks(pageType),
-      headings: getHeadings(),
-      structuredData: getStructuredData(),
-      formFields: getFormContext(),
-      imageAltTexts: getImageAlts(),
-      domainArtifacts: getDomainArtifacts(pageType),
+      codeBlocks: withBudget(() => heavy ? getCodeBlocks(pageType).slice(0, 3) : getCodeBlocks(pageType), []),
+      headings: withBudget(() => getHeadings(), []),
+      structuredData: withBudget(() => getStructuredData(), {}),
+      formFields: withBudget(() => getFormContext(), []),
+      imageAltTexts: withBudget(() => getImageAlts(), []),
+      domainArtifacts: withBudget(() => getDomainArtifacts(pageType), {}),
       domainContext: getDomainContext(),
       extractedAt: Date.now()
     };
+
+    lastExtractionDuration = performance.now() - extractionStartTime;
+    ctx._extractionMs = Math.round(lastExtractionDuration);
+    ctx._isHeavyPage = heavy;
+
     return ctx;
   }
 

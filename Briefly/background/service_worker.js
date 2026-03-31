@@ -15,7 +15,12 @@ import {
   normalizeSettings,
   summarizeRecentTurns,
   appendRecentTurn,
-  resolveModelPlan
+  resolveModelPlan,
+  getProviderConfig,
+  estimateCost,
+  estimateTokenCount,
+  budgetContextTokens,
+  getSignalPriority
 } from './modelUtils.mjs';
 
 // ─────────────────────────────────────────────────────────────────
@@ -126,6 +131,18 @@ chrome.tabs.onRemoved.addListener(tabId => {
   ensureSessionsLoaded()
     .then(() => clearSession(tabId))
     .catch(() => {});
+});
+
+// Autorefresh context when user switches tab or navigates
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  currentTabId = tabId;
+  broadcastToPanel({ type: 'TAB_CHANGED', tabId });
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.active) {
+    broadcastToPanel({ type: 'TAB_NAVIGATED', tabId, url: tab.url });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────
@@ -329,6 +346,105 @@ async function handleMessage(msg, sender, sendResponse) {
         break;
       }
 
+      // ── USAGE / COST ──
+      case 'GET_USAGE': {
+        const [{ usageTotals = {} }, { usageLog = [] }] = await Promise.all([
+          chrome.storage.local.get('usageTotals'),
+          chrome.storage.local.get('usageLog')
+        ]);
+        sendResponse({ success: true, totals: usageTotals, log: usageLog.slice(0, 100) });
+        break;
+      }
+      case 'CLEAR_USAGE': {
+        await chrome.storage.local.set({ usageLog: [], usageTotals: { totalCost: 0, totalInputTokens: 0, totalOutputTokens: 0, totalRequests: 0, monthStart: getMonthStart() } });
+        sendResponse({ success: true });
+        break;
+      }
+      // ── FEEDBACK ──
+      case 'SAVE_FEEDBACK': {
+        const { feedbackLog = [] } = await chrome.storage.local.get('feedbackLog');
+        const feedbackEntry = { id: Date.now().toString(36), timestamp: Date.now(), ...msg.feedback };
+        await chrome.storage.local.set({ feedbackLog: [feedbackEntry, ...feedbackLog].slice(0, 500) });
+        sendResponse({ success: true });
+        break;
+      }
+      case 'GET_FEEDBACK': {
+        const { feedbackLog = [] } = await chrome.storage.local.get('feedbackLog');
+        sendResponse({ success: true, feedback: feedbackLog });
+        break;
+      }
+      // ── GITHUB DEVICE FLOW ──
+      case 'GITHUB_DEVICE_FLOW_START': {
+        const { oauthClients = {} } = await chrome.storage.local.get('oauthClients');
+        const clientId = oauthClients.github?.clientId;
+        if (!clientId) {
+          sendResponse({ success: false, error: 'GitHub OAuth App client ID not configured. Go to Settings → Integrations to add it.' });
+          break;
+        }
+        const deviceRes = await fetch('https://github.com/login/device/code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ client_id: clientId, scope: 'repo read:org' })
+        });
+        if (!deviceRes.ok) {
+          sendResponse({ success: false, error: `GitHub Device Flow request failed: ${deviceRes.status}` });
+          break;
+        }
+        const deviceData = await deviceRes.json();
+        sendResponse({
+          success: true,
+          userCode: deviceData.user_code,
+          verificationUri: deviceData.verification_uri || 'https://github.com/login/device',
+          deviceCode: deviceData.device_code,
+          expiresIn: deviceData.expires_in || 900,
+          interval: deviceData.interval || 5
+        });
+        break;
+      }
+      case 'GITHUB_DEVICE_FLOW_POLL': {
+        const { oauthClients: oc = {} } = await chrome.storage.local.get('oauthClients');
+        const pollClientId = oc.github?.clientId;
+        if (!pollClientId || !msg.deviceCode) {
+          sendResponse({ success: false, error: 'Missing client ID or device code.' });
+          break;
+        }
+        const pollRes = await fetch('https://github.com/login/oauth/access_token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({
+            client_id: pollClientId,
+            device_code: msg.deviceCode,
+            grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+          })
+        });
+        const pollData = await pollRes.json();
+        if (pollData.access_token) {
+          await encryptAndStoreKeys({ github: pollData.access_token });
+          sendResponse({ success: true, status: 'authorized' });
+        } else {
+          sendResponse({ success: true, status: pollData.error || 'authorization_pending' });
+        }
+        break;
+      }
+      // ── REGENERATE WITH DIFFERENT MODEL ──
+      case 'REGENERATE': {
+        broadcastToPanel({ type: 'STATE_GENERATING' });
+        try {
+          const regenTabId = msg.tabId ?? currentTabId;
+          const session = getOrCreateSession(regenTabId);
+          if (!session.lastTranscript) throw new Error('No previous request to regenerate.');
+          const regenContext = session.lastContext || await getPageContext({ includeScreenshot: false });
+          const regenSettings = normalizeSettings({ ...(await chrome.storage.local.get('settings')).settings, ...msg.overrides });
+          const regenIntent = self.IntentClassifier?.classify(session.lastTranscript) || { primary_intent: 'custom', confidence: 0.5 };
+          await processTranscript({ transcript: session.lastTranscript, context: regenContext, localIntent: regenIntent, tabId: regenTabId });
+          sendResponse({ success: true });
+        } catch (err) {
+          broadcastToPanel({ type: 'ERROR', error: 'api_error', message: err.message });
+          sendResponse({ success: false, error: err.message });
+        }
+        break;
+      }
+
       // ── CONTEXT ──
       case 'GET_PAGE_CONTEXT': {
         const context = await getPageContext({ includeScreenshot: msg.includeScreenshot === true });
@@ -368,9 +484,27 @@ async function handleMessage(msg, sender, sendResponse) {
 // API FUNCTIONS
 // ─────────────────────────────────────────────────────────────────
 async function getDecryptedKey(name) {
-  const { encryptedKeys = {}, cryptoKeyRaw } = await chrome.storage.local.get(['encryptedKeys', 'cryptoKeyRaw']);
+  const { encryptedKeys = {} } = await chrome.storage.local.get('encryptedKeys');
   const encrypted = encryptedKeys[name];
-  if (!encrypted || !cryptoKeyRaw) return '';
+  if (!encrypted) return '';
+
+  // Try session storage first (ephemeral key), then fall back to local
+  let cryptoKeyRaw;
+  if (chrome.storage.session) {
+    const session = await chrome.storage.session.get('cryptoKeyRaw');
+    cryptoKeyRaw = session.cryptoKeyRaw;
+  }
+  if (!cryptoKeyRaw) {
+    const local = await chrome.storage.local.get('cryptoKeyRaw');
+    cryptoKeyRaw = local.cryptoKeyRaw;
+    // Migrate to session if available
+    if (cryptoKeyRaw && chrome.storage.session) {
+      await chrome.storage.session.set({ cryptoKeyRaw });
+      await chrome.storage.local.remove('cryptoKeyRaw');
+    }
+  }
+  if (!cryptoKeyRaw) return '';
+
   try {
     const key = await crypto.subtle.importKey('raw', new Uint8Array(cryptoKeyRaw), { name: 'AES-GCM' }, false, ['decrypt']);
     const combined = new Uint8Array(atob(encrypted).split('').map(c => c.charCodeAt(0)));
@@ -445,13 +579,17 @@ async function transcribeAudioSegments(audioSegments = []) {
 async function processTranscript({ transcript, context, localIntent, overrideIntent, tabId }) {
   const { settings = {} } = await chrome.storage.local.get('settings');
   const normalizedSettings = normalizeSettings(settings);
-  const openaiKey = await getDecryptedKey('openai');
+  const llmProvider = normalizedSettings.llmProvider || 'openai';
+  const providerConfig = getProviderConfig(llmProvider);
+  const apiKey = providerConfig.keyName ? await getDecryptedKey(providerConfig.keyName) : null;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000);
 
   try {
-    if (!openaiKey) throw new Error('OpenAI API key required for processing.');
+    if (providerConfig.keyName && !apiKey) {
+      throw new Error(`${providerConfig.label} API key required for processing. Add it in Settings.`);
+    }
 
     const session = getOrCreateSession(tabId);
     const intent = overrideIntent || localIntent?.primary_intent || 'custom';
@@ -465,50 +603,45 @@ async function processTranscript({ transcript, context, localIntent, overrideInt
       hasScreenshot: Boolean(context?.screenshotDataUrl)
     });
 
+    // Load recent feedback preferences to tune the prompt
+    const feedbackPreferences = await loadFeedbackPreferences();
     const systemPrompt = buildSystemPrompt(intent, tone, outputFormat, templateId, normalizedSettings, {
       hasScreenshot: Boolean(context?.screenshotDataUrl),
-      hasRecentTurns: normalizedSettings.threadMemory !== false && session.recentTurns?.length > 0
+      hasRecentTurns: normalizedSettings.threadMemory !== false && session.recentTurns?.length > 0,
+      feedbackPreferences
     });
-    const userMessage = buildUserMessagePayload(transcript, context, normalizedSettings, session);
+    const userMessage = buildUserMessagePayload(transcript, context, normalizedSettings, session, intent);
 
-    const fullOutput = context?.contextSource === 'internet'
-      ? await generateInternetSearchOutput({
-          apiKey: openaiKey,
-          transcript,
-          context,
-          settings: normalizedSettings,
-          session,
-          systemPrompt,
-          signal: controller.signal
-        })
-      : await generateGuaranteedOutput({
-          apiKey: openaiKey,
-          body: {
-            model: modelPlan.primaryModel,
-            temperature: modelPlan.temperature,
-            max_tokens: modelPlan.maxTokens,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userMessage }
-            ]
-          },
-          fallbackBody: modelPlan.fallbackModel && modelPlan.fallbackModel !== modelPlan.primaryModel
-            ? {
-                model: modelPlan.fallbackModel,
-                temperature: modelPlan.temperature,
-                max_tokens: modelPlan.maxTokens,
-                messages: [
-                  { role: 'system', content: systemPrompt },
-                  { role: 'user', content: userMessage }
-                ]
-              }
-            : null,
-          signal: controller.signal,
-          onChunk(text) {
-            broadcastToPanel({ type: 'STREAM_CHUNK', text });
-          }
-        });
+    const inputTokenEstimate = estimateTokenCount(systemPrompt + (typeof userMessage === 'string' ? userMessage : JSON.stringify(userMessage)));
+
+    let generationResult;
+    if (context?.contextSource === 'internet' && llmProvider === 'openai') {
+      const output = await generateInternetSearchOutput({
+        apiKey, transcript, context, settings: normalizedSettings, session, systemPrompt, signal: controller.signal
+      });
+      generationResult = { output, inputTokens: null, outputTokens: null };
+    } else {
+      generationResult = await generateWithProvider({
+        provider: llmProvider,
+        apiKey,
+        systemPrompt,
+        userMessage,
+        modelPlan,
+        settings: normalizedSettings,
+        signal: controller.signal,
+        onChunk(text) {
+          broadcastToPanel({ type: 'STREAM_CHUNK', text });
+        }
+      });
+    }
     clearTimeout(timeout);
+
+    const fullOutput = generationResult.output;
+    // Prefer real token counts from the API response; fall back to estimates
+    const inputTokens = generationResult.inputTokens ?? inputTokenEstimate;
+    const outputTokens = generationResult.outputTokens ?? estimateTokenCount(fullOutput);
+    const costData = estimateCost(modelPlan.primaryModel, inputTokens, outputTokens);
+    await trackUsage({ ...costData, inputTokens, outputTokens, provider: llmProvider, action: 'generation', timestamp: Date.now() });
 
     broadcastToPanel({ type: 'GENERATION_COMPLETE', output: fullOutput });
     updateSession(tabId, {
@@ -541,8 +674,10 @@ async function processTranscript({ transcript, context, localIntent, overrideInt
 async function refineOutput({ refinement, previousOutput, context, transcript, tabId }) {
   const { settings = {} } = await chrome.storage.local.get('settings');
   const normalizedSettings = normalizeSettings(settings);
-  const openaiKey = await getDecryptedKey('openai');
-  if (!openaiKey) throw new Error('OpenAI API key required for refinement.');
+  const llmProvider = normalizedSettings.llmProvider || 'openai';
+  const providerConfig = getProviderConfig(llmProvider);
+  const apiKey = providerConfig.keyName ? await getDecryptedKey(providerConfig.keyName) : null;
+  if (providerConfig.keyName && !apiKey) throw new Error(`${providerConfig.label} API key required for refinement.`);
   const sanitizedContext = sanitizePromptContext(context || {}, {
     ...normalizedSettings,
     usePageContext: true,
@@ -556,74 +691,41 @@ async function refineOutput({ refinement, previousOutput, context, transcript, t
     hasScreenshot: false
   });
 
-  const fullOutput = await generateGuaranteedOutput({
-    apiKey: openaiKey,
-    body: {
-      model: modelPlan.primaryModel,
-      temperature: modelPlan.temperature,
-      max_tokens: modelPlan.maxTokens,
-      messages: [
-        {
-          role: 'system',
-          content: [
-            'You are Briefly, refining an existing draft using the user\'s latest instruction.',
-            'Preserve accurate details from the prior draft unless the new instruction asks to remove or replace them.',
-            'Follow the latest refinement request over the previous draft when they conflict.',
-            'Keep the same format and overall structure unless the user explicitly asks for a different format.',
-            'Do not invent missing facts. If essential information is missing, keep the draft useful and note the assumption briefly.',
-            'Return only the improved final draft.'
-          ].join('\n')
-        },
-        {
-          role: 'user',
-          content: [
-            `Original request:\n${transcript || 'unknown'}`,
-            buildPageContextBlock(sanitizedContext)
-          ].filter(Boolean).join('\n\n')
-        },
-        { role: 'assistant', content: previousOutput || '' },
-        {
-          role: 'user',
-          content: refinement
-            ? `Refinement request:\n${refinement}\n\nRevise the previous draft accordingly.`
-            : 'Improve the previous draft for clarity, accuracy, and usefulness without changing its format.'
-        }
-      ]
+  const refineSystemPrompt = [
+    'You are Briefly, refining an existing draft using the user\'s latest instruction.',
+    'Preserve accurate details from the prior draft unless the new instruction asks to remove or replace them.',
+    'Follow the latest refinement request over the previous draft when they conflict.',
+    'Keep the same format and overall structure unless the user explicitly asks for a different format.',
+    'Do not invent missing facts. If essential information is missing, keep the draft useful and note the assumption briefly.',
+    'Return only the improved final draft.'
+  ].join('\n');
+
+  const refineMessages = [
+    { role: 'system', content: refineSystemPrompt },
+    {
+      role: 'user',
+      content: [
+        `Original request:\n${transcript || 'unknown'}`,
+        buildPageContextBlock(sanitizedContext)
+      ].filter(Boolean).join('\n\n')
     },
-    fallbackBody: modelPlan.fallbackModel && modelPlan.fallbackModel !== modelPlan.primaryModel
-      ? {
-          model: modelPlan.fallbackModel,
-          temperature: modelPlan.temperature,
-          max_tokens: modelPlan.maxTokens,
-          messages: [
-            {
-              role: 'system',
-              content: [
-                'You are Briefly, refining an existing draft using the user\'s latest instruction.',
-                'Preserve accurate details from the prior draft unless the new instruction asks to remove or replace them.',
-                'Follow the latest refinement request over the previous draft when they conflict.',
-                'Keep the same format and overall structure unless the user explicitly asks for a different format.',
-                'Do not invent missing facts. If essential information is missing, keep the draft useful and note the assumption briefly.',
-                'Return only the improved final draft.'
-              ].join('\n')
-            },
-            {
-              role: 'user',
-              content: [
-                `Original request:\n${transcript || 'unknown'}`,
-                buildPageContextBlock(sanitizedContext)
-              ].filter(Boolean).join('\n\n')
-            },
-            { role: 'assistant', content: previousOutput || '' },
-            {
-              role: 'user',
-              content: refinement
-                ? `Refinement request:\n${refinement}\n\nRevise the previous draft accordingly.`
-                : 'Improve the previous draft for clarity, accuracy, and usefulness without changing its format.'
-            }
-          ]
-        }
-      : null,
+    { role: 'assistant', content: previousOutput || '' },
+    {
+      role: 'user',
+      content: refinement
+        ? `Refinement request:\n${refinement}\n\nRevise the previous draft accordingly.`
+        : 'Improve the previous draft for clarity, accuracy, and usefulness without changing its format.'
+    }
+  ];
+
+  const { output: fullOutput } = await generateWithProvider({
+    provider: llmProvider,
+    apiKey,
+    systemPrompt: refineSystemPrompt,
+    userMessage: refineMessages.filter(m => m.role !== 'system').map(m => m.content).join('\n\n'),
+    modelPlan,
+    settings: normalizedSettings,
+    signal: undefined,
     onChunk(text) {
       broadcastToPanel({ type: 'STREAM_CHUNK', text });
     }
@@ -680,6 +782,9 @@ function buildSystemPrompt(intent, tone, outputFormat, templateId, settings = {}
     '- When reviewing code or technical content, be concrete and evidence-based.',
     options.hasScreenshot ? '- A screenshot may be attached. Use it to reason about UI state, layout, visual regressions, and charts when relevant.' : '',
     options.hasRecentTurns ? '- Treat recent tab history as continuity context, not as stronger evidence than the current page and request.' : '',
+    options.feedbackPreferences?.length
+      ? `User style preferences from recent feedback:\n${options.feedbackPreferences.map(p => `- ${p}`).join('\n')}`
+      : '',
     templateNote,
     toneNote,
     formatNote
@@ -748,8 +853,8 @@ function buildTemplateInstruction(templateId, settings = {}) {
   return templateInstructions[templateId] || templateInstructions.general_assistant;
 }
 
-function buildUserMessagePayload(transcript, context, settings = {}, session = {}) {
-  const textContent = buildUserMessage(transcript, context, settings, session);
+function buildUserMessagePayload(transcript, context, settings = {}, session = {}, intent = 'custom') {
+  const textContent = buildUserMessage(transcript, context, settings, session, intent);
   if (!context?.screenshotDataUrl) {
     return textContent;
   }
@@ -765,7 +870,7 @@ function buildUserMessagePayload(transcript, context, settings = {}, session = {
   ];
 }
 
-function buildUserMessage(transcript, context, settings = {}, session = {}) {
+function buildUserMessage(transcript, context, settings = {}, session = {}, intent = 'custom') {
   const sanitizedContext = sanitizePromptContext(context, settings);
   const isInternetContext = sanitizedContext?.contextSource === 'internet';
   const parts = isInternetContext
@@ -790,35 +895,42 @@ function buildUserMessage(transcript, context, settings = {}, session = {}) {
     }
     return parts.join('\n\n');
   }
-  if (sanitizedContext?.selectedText) {
-    parts.push(`Selected text:\n"""\n${sanitizedContext.selectedText.slice(0, 1800)}\n"""`);
+  // Budget context tokens by intent priority to avoid sending low-signal content
+  const contextForBudget = {
+    ...sanitizedContext,
+    structuredData: sanitizedContext.structuredDataSummary,
+    domainArtifacts: sanitizedContext.domainArtifactsSummary
+  };
+  const { budgeted } = budgetContextTokens(contextForBudget, intent, 3000);
+  if (budgeted.selectedText) {
+    parts.push(`Selected text:\n"""\n${budgeted.selectedText}\n"""`);
   }
-  if (sanitizedContext?.visibleText && !sanitizedContext.selectedText) {
-    parts.push(`Visible page snapshot:\n${sanitizedContext.visibleText.slice(0, 2200)}`);
+  if (budgeted.visibleText && !sanitizedContext.selectedText) {
+    parts.push(`Visible page snapshot:\n${budgeted.visibleText}`);
   }
-  if (sanitizedContext?.codeBlocks?.length) {
-    const code = sanitizedContext.codeBlocks
+  if (budgeted.codeBlocks?.length) {
+    const code = budgeted.codeBlocks
       .map((b, index) => `Snippet ${index + 1} [${b.lang || 'unknown'}]\n${b.code}`)
       .join('\n\n');
-    parts.push(`Code snippets:\n\`\`\`\n${code.slice(0, 3200)}\n\`\`\``);
+    parts.push(`Code snippets:\n\`\`\`\n${code}\n\`\`\``);
   }
-  if (sanitizedContext?.headings?.length) {
-    parts.push(`Page headings:\n${sanitizedContext.headings.map(h => `- H${h.level}: ${h.text}`).join('\n')}`);
+  if (budgeted.headings?.length) {
+    parts.push(`Page headings:\n${budgeted.headings.map(h => `- H${h.level}: ${h.text}`).join('\n')}`);
   }
-  if (sanitizedContext?.formFields?.length) {
-    const fieldSummary = sanitizedContext.formFields
+  if (budgeted.formFields?.length) {
+    const fieldSummary = budgeted.formFields
       .map(field => `${field.label || field.type}: ${field.value}`)
       .join(' | ');
-    parts.push(`Relevant form fields:\n${fieldSummary.slice(0, 1200)}`);
+    parts.push(`Relevant form fields:\n${fieldSummary}`);
   }
   if (sanitizedContext?.tool) {
     parts.push(`Detected tool:\n${sanitizedContext.tool}`);
   }
-  if (sanitizedContext?.structuredDataSummary) {
-    parts.push(`Structured page data:\n${sanitizedContext.structuredDataSummary}`);
+  if (budgeted.structuredData) {
+    parts.push(`Structured page data:\n${budgeted.structuredData}`);
   }
-  if (sanitizedContext?.domainArtifactsSummary) {
-    parts.push(`Domain-specific context:\n${sanitizedContext.domainArtifactsSummary}`);
+  if (budgeted.domainArtifacts) {
+    parts.push(`Domain-specific context:\n${budgeted.domainArtifacts}`);
   }
   if (sanitizedContext?.pageType && sanitizedContext.pageType !== 'general') {
     parts.push(`Detected page type:\n${sanitizedContext.pageType}`);
@@ -975,10 +1087,331 @@ function summarizeDomainArtifacts(domainArtifacts) {
   return lines.join('\n').slice(0, 1400);
 }
 
+// ─────────────────────────────────────────────────────────────────
+// MULTI-PROVIDER GENERATION
+// ─────────────────────────────────────────────────────────────────
+async function generateWithProvider({ provider, apiKey, systemPrompt, userMessage, modelPlan, settings, signal, onChunk }) {
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userMessage }
+  ];
+  const fallbackMessages = modelPlan.fallbackModel ? [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userMessage }
+  ] : null;
+
+  switch (provider) {
+    case 'anthropic':
+      return generateWithAnthropic({ apiKey, messages, modelPlan, signal, onChunk });
+    case 'gemini':
+      return generateWithGemini({ apiKey, messages, modelPlan, signal, onChunk });
+    case 'ollama':
+      return generateWithOllama({ messages, modelPlan, settings, signal, onChunk });
+    case 'openai':
+    default: {
+      const result = await generateGuaranteedOutput({
+        apiKey,
+        body: { model: modelPlan.primaryModel, temperature: modelPlan.temperature, max_tokens: modelPlan.maxTokens, messages },
+        fallbackBody: modelPlan.fallbackModel ? { model: modelPlan.fallbackModel, temperature: modelPlan.temperature, max_tokens: modelPlan.maxTokens, messages: fallbackMessages } : null,
+        signal,
+        onChunk
+      });
+      // generateGuaranteedOutput returns { output, inputTokens, outputTokens }
+      return result;
+    }
+  }
+}
+
+async function generateWithAnthropic({ apiKey, messages, modelPlan, signal, onChunk }) {
+  const systemContent = messages.find(m => m.role === 'system')?.content || '';
+  const userContent = messages.filter(m => m.role !== 'system').map(m => {
+    if (typeof m.content === 'string') return { role: m.role, content: m.content };
+    if (Array.isArray(m.content)) {
+      return {
+        role: m.role,
+        content: m.content.map(part => {
+          if (part.type === 'text') return { type: 'text', text: part.text };
+          if (part.type === 'image_url') return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: part.image_url.url.split(',')[1] || '' } };
+          return part;
+        })
+      };
+    }
+    return { role: m.role, content: String(m.content) };
+  });
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: modelPlan.primaryModel,
+      max_tokens: modelPlan.maxTokens,
+      system: systemContent,
+      messages: userContent,
+      stream: true
+    }),
+    signal
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: { message: `HTTP ${res.status}` } }));
+    throw new Error(err.error?.message || `Anthropic API error: ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let output = '';
+  let inputTokens = 0;
+  let outputTokens = 0;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (!data || data === '[DONE]') continue;
+      try {
+        const event = JSON.parse(data);
+        if (event.type === 'content_block_delta' && event.delta?.text) {
+          output += event.delta.text;
+          if (onChunk) onChunk(event.delta.text);
+        } else if (event.type === 'message_start' && event.message?.usage) {
+          inputTokens = event.message.usage.input_tokens || 0;
+        } else if (event.type === 'message_delta' && event.usage) {
+          outputTokens = event.usage.output_tokens || 0;
+        }
+      } catch { /* skip malformed JSON */ }
+    }
+  }
+
+  if (!output.trim() && modelPlan.fallbackModel) {
+    return generateWithAnthropic({
+      apiKey,
+      messages,
+      modelPlan: { ...modelPlan, primaryModel: modelPlan.fallbackModel, fallbackModel: null },
+      signal,
+      onChunk
+    });
+  }
+
+  return { output: output.trim() || '', inputTokens, outputTokens };
+}
+
+async function generateWithGemini({ apiKey, messages, modelPlan, signal, onChunk }) {
+  const systemContent = messages.find(m => m.role === 'system')?.content || '';
+  const userParts = messages.filter(m => m.role !== 'system').map(m => {
+    const role = m.role === 'assistant' ? 'model' : 'user';
+    if (typeof m.content === 'string') return { role, parts: [{ text: m.content }] };
+    if (Array.isArray(m.content)) {
+      return {
+        role,
+        parts: m.content.map(part => {
+          if (part.type === 'text') return { text: part.text };
+          if (part.type === 'image_url') return { inlineData: { mimeType: 'image/jpeg', data: part.image_url.url.split(',')[1] || '' } };
+          return { text: String(part) };
+        })
+      };
+    }
+    return { role, parts: [{ text: String(m.content) }] };
+  });
+
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelPlan.primaryModel}:streamGenerateContent?alt=sse&key=${apiKey}`;
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemContent }] },
+      contents: userParts,
+      generationConfig: { temperature: modelPlan.temperature, maxOutputTokens: modelPlan.maxTokens }
+    }),
+    signal
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: { message: `HTTP ${res.status}` } }));
+    throw new Error(err.error?.message || `Gemini API error: ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let output = '';
+  let inputTokens = 0;
+  let outputTokens = 0;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n');
+    buffer = events.pop() || '';
+
+    for (const line of events) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (!data) continue;
+      try {
+        const event = JSON.parse(data);
+        const text = event.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (text) {
+          output += text;
+          if (onChunk) onChunk(text);
+        }
+        if (event.usageMetadata) {
+          inputTokens = event.usageMetadata.promptTokenCount || inputTokens;
+          outputTokens = event.usageMetadata.candidatesTokenCount || outputTokens;
+        }
+      } catch { /* skip */ }
+    }
+  }
+
+  if (!output.trim() && modelPlan.fallbackModel) {
+    return generateWithGemini({
+      apiKey,
+      messages,
+      modelPlan: { ...modelPlan, primaryModel: modelPlan.fallbackModel, fallbackModel: null },
+      signal,
+      onChunk
+    });
+  }
+
+  return { output: output.trim() || '', inputTokens, outputTokens };
+}
+
+async function generateWithOllama({ messages, modelPlan, settings, signal, onChunk }) {
+  const ollamaEndpoint = settings.ollamaEndpoint || 'http://localhost:11434';
+  const model = settings.ollamaModel || modelPlan.primaryModel || 'llama3';
+
+  const ollamaMessages = messages.map(m => ({
+    role: m.role,
+    content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+  }));
+
+  const res = await fetch(`${ollamaEndpoint}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, messages: ollamaMessages, stream: true }),
+    signal
+  });
+
+  if (!res.ok) {
+    throw new Error(`Ollama error: ${res.status}. Is Ollama running at ${ollamaEndpoint}?`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let output = '';
+  let inputTokens = 0;
+  let outputTokens = 0;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const data = JSON.parse(line);
+        const text = data.message?.content || '';
+        if (text) {
+          output += text;
+          if (onChunk) onChunk(text);
+        }
+        if (data.done) {
+          inputTokens = data.prompt_eval_count || 0;
+          outputTokens = data.eval_count || 0;
+        }
+      } catch { /* skip */ }
+    }
+  }
+
+  return { output: output.trim() || '', inputTokens, outputTokens };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// COST TRACKING
+// ─────────────────────────────────────────────────────────────────
+async function trackUsage(entry) {
+  try {
+    const { usageLog = [] } = await chrome.storage.local.get('usageLog');
+    const newEntry = { id: Date.now().toString(36), ...entry };
+    const updated = [newEntry, ...usageLog].slice(0, 1000);
+    await chrome.storage.local.set({ usageLog: updated });
+
+    // Update running totals
+    const { usageTotals = { totalCost: 0, totalInputTokens: 0, totalOutputTokens: 0, totalRequests: 0, monthStart: getMonthStart() } } = await chrome.storage.local.get('usageTotals');
+    const currentMonth = getMonthStart();
+    if (usageTotals.monthStart !== currentMonth) {
+      usageTotals.totalCost = 0;
+      usageTotals.totalInputTokens = 0;
+      usageTotals.totalOutputTokens = 0;
+      usageTotals.totalRequests = 0;
+      usageTotals.monthStart = currentMonth;
+    }
+    const prevCost = usageTotals.totalCost;
+    usageTotals.totalCost += entry.totalCost || 0;
+    usageTotals.totalInputTokens += entry.inputTokens || 0;
+    usageTotals.totalOutputTokens += entry.outputTokens || 0;
+    usageTotals.totalRequests += 1;
+    await chrome.storage.local.set({ usageTotals });
+
+    // Budget warning: notify panel when crossing 80%, 90%, or 100% thresholds
+    const { settings = {} } = await chrome.storage.local.get('settings');
+    const budget = settings.costBudgetMonthly || 0;
+    if (budget > 0 && settings.costTrackingEnabled !== false) {
+      const prev = prevCost / budget;
+      const curr = usageTotals.totalCost / budget;
+      if (curr >= 1.0 && prev < 1.0) {
+        broadcastToPanel({ type: 'BUDGET_WARNING', level: 'exceeded', totalCost: usageTotals.totalCost, budget });
+      } else if (curr >= 0.9 && prev < 0.9) {
+        broadcastToPanel({ type: 'BUDGET_WARNING', level: 'danger', totalCost: usageTotals.totalCost, budget, pct: curr });
+      } else if (curr >= 0.8 && prev < 0.8) {
+        broadcastToPanel({ type: 'BUDGET_WARNING', level: 'warning', totalCost: usageTotals.totalCost, budget, pct: curr });
+      }
+    }
+  } catch { /* non-critical */ }
+}
+
+function getMonthStart() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+async function loadFeedbackPreferences() {
+  try {
+    const { feedbackLog = [] } = await chrome.storage.local.get('feedbackLog');
+    const preferences = [];
+    for (const entry of feedbackLog.slice(0, 15)) {
+      if (entry.rating === 'negative' && entry.note?.trim()) {
+        preferences.push(`Avoid: ${entry.note.trim().slice(0, 120)}`);
+      } else if (entry.rating === 'positive' && entry.note?.trim()) {
+        preferences.push(`User liked: ${entry.note.trim().slice(0, 120)}`);
+      }
+    }
+    return [...new Set(preferences)].slice(0, 3);
+  } catch {
+    return [];
+  }
+}
+
 async function streamChatCompletionWithFallback({ apiKey, body, fallbackBody, signal, onChunk }) {
   let chunkCount = 0;
   try {
-    const output = await streamChatCompletion({
+    const result = await streamChatCompletion({
       apiKey,
       body,
       signal,
@@ -987,19 +1420,19 @@ async function streamChatCompletionWithFallback({ apiKey, body, fallbackBody, si
         if (onChunk) onChunk(text);
       }
     });
-    return { output, model: body.model };
+    return { ...result, model: body.model };
   } catch (error) {
     if (!fallbackBody || chunkCount > 0 || error.name === 'AbortError') {
       throw error;
     }
 
-    const output = await streamChatCompletion({
+    const result = await streamChatCompletion({
       apiKey,
       body: fallbackBody,
       signal,
       onChunk
     });
-    return { output, model: fallbackBody.model };
+    return { ...result, model: fallbackBody.model };
   }
 }
 
@@ -1027,7 +1460,7 @@ async function chatCompletionOnce({ apiKey, body, signal }) {
 }
 
 async function generateGuaranteedOutput({ apiKey, body, fallbackBody, signal, onChunk }) {
-  const { output, model } = await streamChatCompletionWithFallback({
+  const { output, model, inputTokens, outputTokens } = await streamChatCompletionWithFallback({
     apiKey,
     body,
     fallbackBody,
@@ -1036,7 +1469,7 @@ async function generateGuaranteedOutput({ apiKey, body, fallbackBody, signal, on
   });
 
   if (output && output.trim()) {
-    return output.trim();
+    return { output: output.trim(), inputTokens, outputTokens };
   }
 
   const retryBody = fallbackBody && model !== fallbackBody.model ? fallbackBody : body;
@@ -1047,7 +1480,8 @@ async function generateGuaranteedOutput({ apiKey, body, fallbackBody, signal, on
   });
 
   if (retryOutput && retryOutput.trim()) {
-    return retryOutput.trim();
+    // Non-streaming fallback: no real token counts available
+    return { output: retryOutput.trim(), inputTokens: null, outputTokens: null };
   }
 
   throw new Error('Generation returned no output. Try again.');
@@ -1114,7 +1548,8 @@ async function streamChatCompletion({ apiKey, body, signal, onChunk }) {
     },
     body: JSON.stringify({
       ...body,
-      stream: true
+      stream: true,
+      stream_options: { include_usage: true }
     }),
     signal
   });
@@ -1132,6 +1567,7 @@ async function streamChatCompletion({ apiKey, body, signal, onChunk }) {
   const decoder = new TextDecoder();
   let buffer = '';
   let output = '';
+  let usageData = null;
 
   while (true) {
     const { value, done } = await reader.read();
@@ -1154,14 +1590,23 @@ async function streamChatCompletion({ apiKey, body, signal, onChunk }) {
         if (!data || data === '[DONE]') continue;
         const payload = JSON.parse(data);
         const delta = payload.choices?.[0]?.delta?.content || '';
-        if (!delta) continue;
-        output += delta;
-        if (onChunk) onChunk(delta);
+        if (delta) {
+          output += delta;
+          if (onChunk) onChunk(delta);
+        }
+        // stream_options: {include_usage: true} sends usage in the final chunk
+        if (payload.usage) {
+          usageData = payload.usage;
+        }
       }
     }
   }
 
-  return output.trim();
+  return {
+    output: output.trim(),
+    inputTokens: usageData?.prompt_tokens ?? null,
+    outputTokens: usageData?.completion_tokens ?? null
+  };
 }
 
 async function transcribeWithOpenAI(audioBlob, apiKey, language, signal) {
@@ -1396,13 +1841,17 @@ async function notifyUser(title, message) {
 
 async function saveToHistory(entry) {
   try {
-    const { history = [] } = await chrome.storage.local.get('history');
+    const [{ history = [] }, { settings = {} }] = await Promise.all([
+      chrome.storage.local.get('history'),
+      chrome.storage.local.get('settings')
+    ]);
+    const limit = normalizeSettings(settings).historyLimit || 500;
     const newEntry = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2),
       timestamp: Date.now(),
       ...entry
     };
-    const updated = [newEntry, ...history].slice(0, 50);
+    const updated = [newEntry, ...history].slice(0, limit);
     await chrome.storage.local.set({ history: updated });
     broadcastToPanel({ type: 'HISTORY_UPDATED', count: updated.length });
   } catch (err) {
@@ -1411,12 +1860,28 @@ async function saveToHistory(entry) {
 }
 
 async function encryptAndStoreKeys(rawKeys) {
-  const { cryptoKeyRaw } = await chrome.storage.local.get('cryptoKeyRaw');
-  let keyBytes = cryptoKeyRaw;
+  // Try session storage first, then local
+  let keyBytes;
+  if (chrome.storage.session) {
+    const session = await chrome.storage.session.get('cryptoKeyRaw');
+    keyBytes = session.cryptoKeyRaw;
+  }
+  if (!keyBytes) {
+    const local = await chrome.storage.local.get('cryptoKeyRaw');
+    keyBytes = local.cryptoKeyRaw;
+    if (keyBytes && chrome.storage.session) {
+      await chrome.storage.session.set({ cryptoKeyRaw: keyBytes });
+      await chrome.storage.local.remove('cryptoKeyRaw');
+    }
+  }
   if (!keyBytes) {
     const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
     keyBytes = Array.from(new Uint8Array(await crypto.subtle.exportKey('raw', key)));
-    await chrome.storage.local.set({ cryptoKeyRaw: keyBytes });
+    if (chrome.storage.session) {
+      await chrome.storage.session.set({ cryptoKeyRaw: keyBytes });
+    } else {
+      await chrome.storage.local.set({ cryptoKeyRaw: keyBytes });
+    }
   }
   const cryptoKey = await crypto.subtle.importKey('raw', new Uint8Array(keyBytes), { name: 'AES-GCM' }, false, ['encrypt']);
   const { encryptedKeys = {} } = await chrome.storage.local.get('encryptedKeys');

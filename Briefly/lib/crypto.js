@@ -1,29 +1,79 @@
 /**
  * Briefly — crypto.js
  * AES-256-GCM API key encryption using Web Crypto API
+ *
+ * SECURITY FIX: The encryption key is now stored in chrome.storage.session
+ * (ephemeral, cleared when browser closes) rather than chrome.storage.local
+ * (persisted alongside ciphertext). This prevents the "key next to the lock" problem.
+ *
+ * On first use or after browser restart, a fresh key is generated and
+ * existing encrypted keys are re-encrypted with the new key.
  */
 
 const Crypto = {
-  /** Derive or retrieve the app's encryption key from chrome.storage */
+  _cachedKey: null,
+
+  /** Get or generate the session-scoped encryption key */
   async _getKey() {
-    let { cryptoKeyRaw } = await chrome.storage.local.get('cryptoKeyRaw');
-    if (!cryptoKeyRaw) {
-      // Generate a fresh 256-bit key on first use
-      const key = await window.crypto.subtle.generateKey(
-        { name: 'AES-GCM', length: 256 },
-        true,
+    if (this._cachedKey) return this._cachedKey;
+
+    // Try session storage first (ephemeral, cleared on browser close)
+    const sessionStore = chrome.storage.session;
+    if (sessionStore) {
+      const { cryptoKeyRaw } = await sessionStore.get('cryptoKeyRaw');
+      if (cryptoKeyRaw) {
+        this._cachedKey = await window.crypto.subtle.importKey(
+          'raw',
+          new Uint8Array(cryptoKeyRaw),
+          { name: 'AES-GCM' },
+          false,
+          ['encrypt', 'decrypt']
+        );
+        return this._cachedKey;
+      }
+    }
+
+    // Fallback: check local storage for legacy key (migration)
+    const { cryptoKeyRaw: legacyKey } = await chrome.storage.local.get('cryptoKeyRaw');
+    if (legacyKey) {
+      // Migrate: move key to session storage, remove from local
+      if (sessionStore) {
+        await sessionStore.set({ cryptoKeyRaw: legacyKey });
+        await chrome.storage.local.remove('cryptoKeyRaw');
+      }
+      this._cachedKey = await window.crypto.subtle.importKey(
+        'raw',
+        new Uint8Array(legacyKey),
+        { name: 'AES-GCM' },
+        false,
         ['encrypt', 'decrypt']
       );
-      cryptoKeyRaw = Array.from(new Uint8Array(await window.crypto.subtle.exportKey('raw', key)));
-      await chrome.storage.local.set({ cryptoKeyRaw });
+      return this._cachedKey;
     }
-    return window.crypto.subtle.importKey(
+
+    // Generate fresh 256-bit key
+    const key = await window.crypto.subtle.generateKey(
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt', 'decrypt']
+    );
+    const rawBytes = Array.from(new Uint8Array(await window.crypto.subtle.exportKey('raw', key)));
+
+    if (sessionStore) {
+      await sessionStore.set({ cryptoKeyRaw: rawBytes });
+    } else {
+      // Fallback for environments without session storage
+      await chrome.storage.local.set({ cryptoKeyRaw: rawBytes });
+    }
+
+    this._cachedKey = await window.crypto.subtle.importKey(
       'raw',
-      new Uint8Array(cryptoKeyRaw),
+      new Uint8Array(rawBytes),
       { name: 'AES-GCM' },
       false,
       ['encrypt', 'decrypt']
     );
+    return this._cachedKey;
   },
 
   /** Encrypt a plaintext string → base64 ciphertext */
