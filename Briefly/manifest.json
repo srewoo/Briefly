@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Briefly — Speech ⇄ Text",
   "version": "2.0.0",
-  "description": "Simple speech-to-text and text-to-speech using free browser APIs, AssemblyAI, ElevenLabs, and OpenAI.",
+  "description": "Voice ⇄ Text in your browser. Free speech-to-text and text-to-speech with Web Speech, StreamElements, Google Translate, Groq, Deepgram, AssemblyAI, OpenAI, and ElevenLabs.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
