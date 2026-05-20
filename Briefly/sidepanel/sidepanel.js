@@ -1,466 +1,918 @@
-// ─────────────────────────────────────────────────────────────────
-// sidepanel.js — Thin entry point
-// ─────────────────────────────────────────────────────────────────
+import { Storage } from '../lib/storage.js';
+import { STT, TTS, OPENAI_TTS_VOICES, TRANSLATE_LANGS, translateText } from '../lib/providers.js';
 
-import { $, el, State, DEFAULT_SETTINGS, normalizeSettings, normalizeIntegrations, normalizeCustomRecipes, findTemplate, integrationLabel } from './modules/state.js';
+const $ = sel => document.querySelector(sel);
+const $$ = sel => document.querySelectorAll(sel);
 
-import {
-  initElements, setMode, showToast, openModal, closeModal, navigateTo,
-  toggleSection, applyTheme, showTranscript, showLatestFollowUp, showOutputSection,
-  showIntentBadge, appendStreamChunk, finalizeOutput,
-  renderRecipeToolbar, renderHistoryList, renderLibraryList,
-  renderIntegrationStatuses, renderContextSnapshot,
-  populateTemplateSelect, populateSettingsFields, populateNewSettingsFields,
-  syncPreferenceControls, updateSttBadge, drawWaveform,
-  renderUsageDashboard, updateOAuthStatus
-} from './modules/views.js';
+// ─── Toast ───────────────────────────────────────────────
+function toast(text, kind = '') {
+  const t = document.createElement('div');
+  t.className = `toast ${kind}`;
+  t.textContent = text;
+  $('#toastContainer').appendChild(t);
+  setTimeout(() => t.remove(), 2400);
+}
 
-import {
-  initTabId,
-  startRecording, stopRecording, toggleRecording,
-  runCommand, prepareFreshGeneration, overrideIntent,
-  submitRefine, toggleRefine,
-  copyOutput, exportAs,
-  loadHistory, deleteHistory, restoreHistory, saveToLibrary, clearHistory,
-  exportTemplates, importTemplates, exportHistoryData, importHistoryData,
-  updateRuntimeSetting, saveSettings, toggleTheme,
-  setActiveTemplate, maybeAutoSelectTemplate,
-  addCustomRecipeFromForm, resetCustomRecipeForm, handleCustomRecipeListClick,
-  refreshContextSnapshot, scheduleAutorefreshContext, openContextReview,
-  saveContextReviewPreferences, resetContextReviewPreferences,
-  openIntegrationReview, selectIntegrationTarget, confirmRouteOutput,
-  handleIntegrationOptionChange, loadPageActions, isIntegrationReady,
-  submitFeedback, confirmRegenerate, loadUsageDashboard,
-  initiateOAuth, initiateGitHubDeviceFlow, loadOAuthStatuses,
-  clearAllData, toggleTranscriptEdit,
-  retryLast, syncSessionToBackground,
-  handleError, handleTabChangeForAutorefresh,
-  clearDeviceFlowTimer
-} from './modules/handlers.js';
+// ─── Tabs ────────────────────────────────────────────────
+$$('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    $$('.tab').forEach(x => x.classList.toggle('active', x === t));
+    const id = t.dataset.tab;
+    $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === id));
+  });
+});
 
-// ── Init ──
+// ─── Theme toggle ────────────────────────────────────────
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const isLight = theme === 'light';
+  const icon = $('#themeIcon'); const label = $('#themeLabel');
+  if (icon)  icon.textContent  = isLight ? '☀' : '🌙';
+  if (label) label.textContent = isLight ? 'Light' : 'Dark';
+}
+$('#themeToggle').addEventListener('click', async () => {
+  const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = cur === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  await Storage.setSettings({ theme: next });
+});
 
-async function init() {
-  initElements();
-  await Markdown.loadDependencies();
-  populateTemplateSelect();
-  await initTabId();
-  await loadBootstrapData();
-  bindEvents();
-  setupMessageListener();
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && State.settings.usePageContext && State.settings.autorefreshContext) {
-      scheduleAutorefreshContext();
+// ─── Onboarding banner ──────────────────────────────────
+async function maybeShowOnboarding() {
+  const { hasOnboarded } = await chrome.storage.local.get('hasOnboarded');
+  if (!hasOnboarded) $('#onboardBanner').hidden = false;
+}
+$('#onboardDismiss').addEventListener('click', async () => {
+  $('#onboardBanner').hidden = true;
+  await chrome.storage.local.set({ hasOnboarded: true });
+});
+$('#onboardSettings').addEventListener('click', () => {
+  $('#settingsModal').hidden = false;
+});
+
+// ─── Footer / settings links ────────────────────────────
+function openExtPage(path) {
+  chrome.tabs.create({ url: chrome.runtime.getURL(path) });
+}
+$('#privacyLink').addEventListener('click', e => { e.preventDefault(); openExtPage('privacy.html'); });
+$('#privacyFooterLink').addEventListener('click', e => { e.preventDefault(); openExtPage('privacy.html'); });
+$('#helpFooterLink').addEventListener('click', e => { e.preventDefault(); openExtPage('help.html'); });
+
+// ─── Push-to-talk from keyboard shortcut ─────────────────
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg && msg.type === 'TOGGLE_RECORD') {
+    // Ensure STT tab is active so the user sees what's happening
+    $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'stt'));
+    $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === 'stt'));
+    if (recording) stopRecording(); else startRecording();
+  }
+});
+
+// ─── Settings + History modals ───────────────────────────
+$('#settingsBtn').addEventListener('click', () => $('#settingsModal').hidden = false);
+$('#closeSettings').addEventListener('click', () => $('#settingsModal').hidden = true);
+$('#settingsModal').addEventListener('click', e => {
+  if (e.target.id === 'settingsModal') $('#settingsModal').hidden = true;
+});
+
+$('#historyBtn').addEventListener('click', async () => {
+  await renderHistory();
+  $('#historyDrawer').hidden = false;
+});
+$('#closeHistory').addEventListener('click', () => $('#historyDrawer').hidden = true);
+
+// ─── Translate target language (settings + button label) ────────
+function populateTranslateLangs(selectedCode) {
+  const sel = $('#translateTargetLang');
+  if (!sel) return;
+  sel.innerHTML = '';
+  TRANSLATE_LANGS.forEach(l => {
+    const o = document.createElement('option');
+    o.value = l.code; o.textContent = l.label;
+    sel.appendChild(o);
+  });
+  if (selectedCode) sel.value = selectedCode;
+}
+function updateTranslateButtonLabel(code) {
+  const btn = $('#translateBtn'); if (!btn) return;
+  const upper = (code || 'en').toUpperCase();
+  const label = (TRANSLATE_LANGS.find(l => l.code === code) || {}).label || upper;
+  btn.textContent = `🌐 Translate → ${upper}`;
+  btn.title = `Translate the last recording to ${label}`;
+}
+
+function setMsg(sel, text, kind = 'muted') {
+  const el = $(sel);
+  el.textContent = text;
+  el.className = `status small ${kind}`;
+}
+
+// ─── Settings load/save ──────────────────────────────────
+async function loadSettings() {
+  const s = await Storage.getSettings();
+  const k = await Storage.getKeys();
+  $('#sttProvider').value = s.sttProvider;
+  $('#sttLang').value = s.sttLang;
+  $('#silenceTimeout').value = String(s.silenceTimeoutMs);
+  $('#ttsProvider').value = s.ttsProvider;
+  $('#elevenModel').value = s.elevenModelId;
+  $('#openaiTtsModel').value = s.openaiTtsModel;
+  if ($('#streamElementsVoice')) $('#streamElementsVoice').value = s.streamElementsVoice;
+  if ($('#gtranslateLang')) $('#gtranslateLang').value = s.gtranslateLang;
+  applyTheme(s.theme || 'dark');
+  $('#ttsRate').value = s.ttsRate;       $('#ttsRateVal').textContent = s.ttsRate;
+  $('#ttsPitch').value = s.ttsPitch;     $('#ttsPitchVal').textContent = s.ttsPitch;
+  $('#ttsVolume').value = s.ttsVolume;   $('#ttsVolumeVal').textContent = s.ttsVolume;
+  $('#elevenStability').value = s.elevenStability;   $('#elevenStabilityVal').textContent = (+s.elevenStability).toFixed(2);
+  $('#elevenSimilarity').value = s.elevenSimilarity; $('#elevenSimilarityVal').textContent = (+s.elevenSimilarity).toFixed(2);
+  $('#autoCopyTranscript').checked = !!s.autoCopyTranscript;
+  for (const f of ['assemblyaiKey', 'elevenlabsKey', 'openaiKey', 'groqKey', 'deepgramKey']) {
+    $(`#${f}`).value = k[f];
+  }
+  populateOpenAIVoices(s.openaiTtsVoice);
+  populateTranslateLangs(s.translateTargetLang);
+  updateTranslateButtonLabel(s.translateTargetLang);
+  updateSttVisibility();
+  updateTtsVisibility();
+  updateCharCount();
+}
+
+$('#saveSettings').addEventListener('click', async () => {
+  await Storage.setKeys({
+    assemblyaiKey: $('#assemblyaiKey').value.trim(),
+    elevenlabsKey: $('#elevenlabsKey').value.trim(),
+    openaiKey: $('#openaiKey').value.trim(),
+    groqKey: $('#groqKey').value.trim(),
+    deepgramKey: $('#deepgramKey').value.trim()
+  });
+  await Storage.setSettings({
+    autoCopyTranscript: $('#autoCopyTranscript').checked,
+    translateTargetLang: $('#translateTargetLang').value
+  });
+  updateTranslateButtonLabel($('#translateTargetLang').value);
+  toast('Settings saved.', 'ok');
+  setTimeout(() => $('#settingsModal').hidden = true, 400);
+});
+
+$('#resetSettings').addEventListener('click', async () => {
+  if (!confirm('Reset all settings, API keys, and history?')) return;
+  await Storage.resetAll();
+  toast('All settings cleared.', 'ok');
+  setTimeout(() => location.reload(), 400);
+});
+
+// Test-key buttons
+$$('[data-test]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const which = btn.dataset.test;
+    const keyInput = $(`#${which}Key`);
+    const key = keyInput.value.trim();
+    if (!key) { toast('Enter a key first.', 'error'); return; }
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      const provider = STT[which] || TTS[which];
+      if (!provider || !provider.testKey) {
+        toast('No test endpoint for this provider.', 'error');
+      } else {
+        const r = await provider.testKey({ apiKey: key });
+        toast(r.ok ? `${which}: key OK ✓` : `${which}: failed (${r.status})`, r.ok ? 'ok' : 'error');
+      }
+    } catch (e) {
+      toast(`${which}: ${e.message}`, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Test';
     }
   });
-  applyTheme(State.settings.theme);
-  updateSttBadge(State.settings.sttProvider);
-  renderRecipeToolbar();
-  renderHistoryList();
-  renderLibraryList();
-  renderIntegrationStatuses();
-  syncPreferenceControls();
-  populateNewSettingsFields();
-  await refreshContextSnapshot();
-  await hydrateSessionFromBackground();
-  await loadUsageDashboard();
-  await loadOAuthStatuses();
+});
 
-  // Offline detection
-  window.addEventListener('online', () => {
-    showToast('Back online', 'success');
-  });
-  window.addEventListener('offline', () => {
-    showToast('You are offline. Some features may be unavailable.', 'error');
-  });
-}
-
-// ── Bootstrap ──
-
-async function loadBootstrapData() {
-  const [{ settings = {}, history = [], library = [], integrations = {}, encryptedKeys = {} }] = await Promise.all([
-    chrome.storage.local.get(['settings', 'history', 'library', 'integrations', 'encryptedKeys'])
-  ]);
-
-  State.settings = normalizeSettings(settings);
-  State.customRecipes = normalizeCustomRecipes(State.settings.customRecipes || []);
-  State.settings.customRecipes = State.customRecipes;
-  if (!findTemplate(State.settings.activeTemplate)) {
-    State.settings.activeTemplate = DEFAULT_SETTINGS.activeTemplate;
+// ─── Provider visibility ─────────────────────────────────
+function updateSttVisibility() {
+  const provider = $('#sttProvider').value;
+  $('#sttLangField').style.display = provider === 'webspeech' ? '' : 'none';
+  $('#silenceField').style.display = provider === 'webspeech' ? 'none' : '';
+  const canStream = provider === 'deepgram' || provider === 'assemblyai';
+  $('#liveStreamField').hidden = !canStream;
+  if (canStream) {
+    $('#liveStreamLabel').textContent =
+      provider === 'deepgram'
+        ? 'Live streaming (Deepgram) — see words as you speak'
+        : 'Live streaming (AssemblyAI Universal v3) — see words as you speak';
   }
-  State.history = history;
-  State.library = library;
-  State.integrations = normalizeIntegrations(integrations);
-  State.encryptedKeys = encryptedKeys;
-
-  populateTemplateSelect();
-  populateSettingsFields();
+}
+function updateTtsVisibility() {
+  const provider = $('#ttsProvider').value;
+  $$('[data-show-for]').forEach(el => {
+    el.classList.toggle('visible', el.dataset.showFor === provider);
+  });
 }
 
-// ── Hydrate ──
+$('#sttProvider').addEventListener('change', async e => {
+  await Storage.setSettings({ sttProvider: e.target.value });
+  updateSttVisibility();
+});
+$('#sttLang').addEventListener('change', e => Storage.setSettings({ sttLang: e.target.value }));
+$('#silenceTimeout').addEventListener('change', e => Storage.setSettings({ silenceTimeoutMs: Number(e.target.value) }));
+$('#ttsProvider').addEventListener('change', async e => {
+  await Storage.setSettings({ ttsProvider: e.target.value });
+  updateTtsVisibility();
+  if (e.target.value === 'elevenlabs') loadElevenVoices();
+});
 
-async function hydrateSessionFromBackground() {
-  await initTabId();
-  if (State.tabId == null) return;
+// ─── Web Speech voices ───────────────────────────────────
+function populateWebSpeechVoices() {
+  const voices = speechSynthesis.getVoices();
+  const sel = $('#webspeechVoice');
+  sel.innerHTML = '';
+  voices.forEach(v => {
+    const o = document.createElement('option');
+    o.value = v.voiceURI;
+    o.textContent = `${v.name} (${v.lang})${v.default ? ' — default' : ''}`;
+    sel.appendChild(o);
+  });
+  Storage.getSettings().then(s => { if (s.ttsVoiceURI) sel.value = s.ttsVoiceURI; });
+}
+speechSynthesis.onvoiceschanged = populateWebSpeechVoices;
+populateWebSpeechVoices();
+$('#webspeechVoice').addEventListener('change', e => Storage.setSettings({ ttsVoiceURI: e.target.value }));
 
+// Sliders
+for (const [id, key, fmt] of [
+  ['ttsRate', 'ttsRate', v => v],
+  ['ttsPitch', 'ttsPitch', v => v],
+  ['ttsVolume', 'ttsVolume', v => v],
+  ['elevenStability', 'elevenStability', v => (+v).toFixed(2)],
+  ['elevenSimilarity', 'elevenSimilarity', v => (+v).toFixed(2)]
+]) {
+  $(`#${id}`).addEventListener('input', e => {
+    $(`#${id}Val`).textContent = fmt(e.target.value);
+    Storage.setSettings({ [key]: Number(e.target.value) });
+  });
+}
+
+// OpenAI voices
+function populateOpenAIVoices(selected) {
+  const sel = $('#openaiVoice');
+  sel.innerHTML = '';
+  OPENAI_TTS_VOICES.forEach(v => {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = v;
+    sel.appendChild(o);
+  });
+  if (selected) sel.value = selected;
+}
+$('#openaiVoice').addEventListener('change', e => Storage.setSettings({ openaiTtsVoice: e.target.value }));
+$('#openaiTtsModel').addEventListener('change', e => Storage.setSettings({ openaiTtsModel: e.target.value }));
+$('#elevenModel').addEventListener('change', e => Storage.setSettings({ elevenModelId: e.target.value }));
+$('#streamElementsVoice').addEventListener('change', e => Storage.setSettings({ streamElementsVoice: e.target.value }));
+$('#translateTargetLang').addEventListener('change', async e => {
+  await Storage.setSettings({ translateTargetLang: e.target.value });
+  updateTranslateButtonLabel(e.target.value);
+});
+$('#gtranslateLang').addEventListener('change', e => Storage.setSettings({ gtranslateLang: e.target.value }));
+
+// ElevenLabs voices
+async function loadElevenVoices() {
+  const sel = $('#elevenVoice');
+  sel.innerHTML = '';
+  const { elevenlabsKey } = await Storage.getKeys();
+  if (!elevenlabsKey) {
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = '— Add ElevenLabs key in settings —';
+    sel.appendChild(o);
+    return;
+  }
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'GET_SESSION', tabId: State.tabId });
-    const session = response?.session;
-    if (!session) return;
+    const voices = await TTS.elevenlabs.listVoices({ apiKey: elevenlabsKey });
+    voices.forEach(v => {
+      const o = document.createElement('option');
+      o.value = v.id; o.textContent = v.name;
+      sel.appendChild(o);
+    });
+    const { elevenVoiceId } = await Storage.getSettings();
+    if (elevenVoiceId && voices.some(v => v.id === elevenVoiceId)) sel.value = elevenVoiceId;
+  } catch (e) {
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = `Error: ${e.message}`;
+    sel.appendChild(o);
+  }
+}
+$('#refreshElevenVoices').addEventListener('click', loadElevenVoices);
+$('#elevenVoice').addEventListener('change', e => Storage.setSettings({ elevenVoiceId: e.target.value }));
 
-    if (!State.context && session.lastContext) {
-      State.context = session.lastContext;
-      renderContextSnapshot();
-    }
+// Char counter
+function updateCharCount() {
+  $('#ttsCharCount').textContent = `${$('#ttsText').value.length} chars`;
+}
+$('#ttsText').addEventListener('input', updateCharCount);
 
-    if (session.lastTranscript) {
-      State.transcript = session.lastTranscript;
-      showTranscript(session.lastTranscript);
-    }
+// ─── Waveform canvas ─────────────────────────────────────
+const canvas = $('#waveform');
+const ctx = canvas.getContext('2d');
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.clientWidth * dpr;
+  canvas.height = canvas.clientHeight * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resizeCanvas);
+setTimeout(resizeCanvas, 0);
 
-    showLatestFollowUp(session.lastRefinement || '');
+function themeColor(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
 
-    if (session.lastIntent) {
-      State.intent = { primary_intent: session.lastIntent, confidence: 1 };
-      showIntentBadge(State.intent);
-    }
+function drawIdle() {
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = themeColor('--border') || '#2a3140';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+}
+drawIdle();
 
-    if (session.lastOutput) {
-      State.output = session.lastOutput;
-      showOutputSection();
-      el.markdownOutput.innerHTML = Markdown.render(State.output);
-      setMode('done');
-    }
-  } catch {
-    // Ignore hydration failures; panel can still operate with a fresh state.
+// Smooth previous frame towards the new sample so bars animate fluidly
+let smoothedBars = null;
+function drawBars(bars) {
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  ctx.clearRect(0, 0, W, H);
+  if (!smoothedBars || smoothedBars.length !== bars.length) {
+    smoothedBars = new Float32Array(bars.length);
+  }
+  const accent = themeColor('--accent') || '#4f7cff';
+  const accentSoft = themeColor('--accent-hover') || accent;
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, accentSoft);
+  grad.addColorStop(1, accent);
+  ctx.fillStyle = grad;
+  const barW = W / bars.length;
+  const minH = 2;
+  for (let i = 0; i < bars.length; i++) {
+    smoothedBars[i] = smoothedBars[i] * 0.55 + bars[i] * 0.45;
+    const h = Math.max(minH, (smoothedBars[i] / 255) * H * 0.95);
+    const x = i * barW + 1;
+    const y = (H - h) / 2;
+    const w = barW - 2;
+    const r = Math.min(w / 2, 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y,       x + w, y + h, r);
+    ctx.arcTo(x + w, y + h,   x,     y + h, r);
+    ctx.arcTo(x,     y + h,   x,     y,     r);
+    ctx.arcTo(x,     y,       x + w, y,     r);
+    ctx.closePath();
+    ctx.fill();
   }
 }
 
-// ── Events ──
+// ─── Mic permission warm-up ──────────────────────────────
+async function ensureMicPermission() {
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    s.getTracks().forEach(t => t.stop());
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e.name === 'NotAllowedError' ? 'mic_denied' : 'mic_error',
+      message: e.message
+    };
+  }
+}
 
-function bindEvents() {
-  el.micBtn.addEventListener('click', toggleRecording);
-  el.btnRunCommand.addEventListener('click', runCommand);
-  el.commandInput.addEventListener('keydown', event => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault();
-      runCommand();
+// ─── STT: state ──────────────────────────────────────────
+let recognizer = null;
+let recording = false;
+let lastRecordedBlob = null;
+let lastRecordedMime = '';
+
+async function ensureOffscreen() {
+  return chrome.runtime.sendMessage({ type: 'ENSURE_OFFSCREEN' });
+}
+
+function setRecording(on) {
+  recording = on;
+  const btn = $('#recordBtn');
+  btn.classList.toggle('recording', on);
+  btn.textContent = on ? '⏹ Stop recording' : '🎙 Start recording';
+  if (!on) { smoothedBars = null; drawIdle(); }
+}
+
+// Live streaming state
+let liveStreaming = false;
+let liveBaseline = '';
+let liveFinalBuf = '';
+
+// Listen for offscreen events (waveform + silence + live transcripts)
+chrome.runtime.onMessage.addListener((msg) => {
+  if (!msg || !msg.type) return;
+  if (msg.type === 'WAVEFORM_DATA' && recording) drawBars(msg.bars);
+  else if (msg.type === 'SILENCE_DETECTED' && recording) {
+    setMsg('#sttStatus', 'Silence detected — stopping…');
+    stopRecording();
+  } else if (msg.type === 'STREAM_OPEN') {
+    setMsg('#sttStatus', 'Live · listening…', 'ok');
+  } else if (msg.type === 'STREAM_TRANSCRIPT') {
+    if (!liveStreaming) return;
+    if (msg.isFinal && msg.text) liveFinalBuf += (liveFinalBuf ? ' ' : '') + msg.text;
+    const sep = liveBaseline && !liveBaseline.endsWith('\n') ? '\n' : '';
+    $('#transcript').value = liveBaseline + sep + liveFinalBuf + (msg.isFinal ? '' : ` ${msg.text}`);
+  } else if (msg.type === 'STREAM_ERROR') {
+    setMsg('#sttStatus', msg.message || 'Stream error.', 'error');
+  } else if (msg.type === 'STREAM_CLOSED' && liveStreaming) {
+    // Will be handled by stopRecording; ignore if user-initiated
+  } else if (msg.type === 'STREAM_AUDIO_BLOB') {
+    // The offscreen doc captured a backup blob while live-streaming —
+    // store it so Translate and Download Recording work after live mode.
+    (async () => {
+      try {
+        lastRecordedBlob = await (await fetch(msg.dataUrl)).blob();
+        lastRecordedMime = msg.mimeType;
+        $('#downloadAudio').disabled = false;
+      } catch (_) {}
+    })();
+  }
+});
+
+$('#recordBtn').addEventListener('click', () => {
+  if (recording) stopRecording(); else startRecording();
+});
+
+async function startRecording() {
+  const provider = $('#sttProvider').value;
+  setMsg('#sttStatus', 'Requesting microphone…');
+  setRecording(true);
+
+  if (provider === 'webspeech') {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      setMsg('#sttStatus', 'Web Speech API not available in this browser.', 'error');
+      setRecording(false); return;
     }
-  });
-
-  el.recipeToolbar.addEventListener('click', async event => {
-    const button = event.target.closest('[data-template-id]');
-    if (!button) return;
-    await setActiveTemplate(button.dataset.templateId);
-  });
-
-  el.btnRefreshContext.addEventListener('click', refreshContextSnapshot);
-  el.btnReviewContext.addEventListener('click', openContextReview);
-  el.togglePageContext.addEventListener('change', () => updateRuntimeSetting('usePageContext', el.togglePageContext.checked, true));
-  el.toggleSelectionOnly.addEventListener('change', () => updateRuntimeSetting('selectionOnly', el.toggleSelectionOnly.checked, true));
-  el.toggleVisionContext.addEventListener('change', () => updateRuntimeSetting('useVisionContext', el.toggleVisionContext.checked, false));
-  el.toggleRedactSensitive.addEventListener('change', () => updateRuntimeSetting('redactSensitive', el.toggleRedactSensitive.checked, false));
-
-  $('pref-use-page-context').addEventListener('change', () => updateRuntimeSetting('usePageContext', $('pref-use-page-context').checked, true));
-  $('pref-autorefresh-context').addEventListener('change', () => updateRuntimeSetting('autorefreshContext', $('pref-autorefresh-context').checked, false));
-  $('pref-selection-only').addEventListener('change', () => updateRuntimeSetting('selectionOnly', $('pref-selection-only').checked, true));
-  $('pref-use-vision-context').addEventListener('change', () => updateRuntimeSetting('useVisionContext', $('pref-use-vision-context').checked, false));
-  $('pref-thread-memory').addEventListener('change', () => updateRuntimeSetting('threadMemory', $('pref-thread-memory').checked, false));
-  $('pref-redact-sensitive').addEventListener('change', () => updateRuntimeSetting('redactSensitive', $('pref-redact-sensitive').checked, false));
-  $('settings-review-before-send').addEventListener('change', () => updateRuntimeSetting('reviewBeforeSend', $('settings-review-before-send').checked, false));
-  $('default-template').addEventListener('change', event => setActiveTemplate(event.target.value));
-  $('btn-add-custom-recipe').addEventListener('click', addCustomRecipeFromForm);
-  $('btn-reset-custom-recipe').addEventListener('click', resetCustomRecipeForm);
-  el.customRecipeList.addEventListener('click', handleCustomRecipeListClick);
-
-  document.addEventListener('keydown', async event => {
-    if (event.code === 'Space' && event.target === document.body) {
-      event.preventDefault();
-      if (!State.pushToTalkActive && ['idle', 'done', 'error'].includes(State.mode)) {
-        State.pushToTalkActive = true;
-        await startRecording();
+    const perm = await ensureMicPermission();
+    if (!perm.ok) {
+      setMsg('#sttStatus',
+        perm.error === 'mic_denied'
+          ? 'Microphone permission denied. Allow Chrome mic access in macOS System Settings → Privacy & Security → Microphone.'
+          : `Mic error: ${perm.message}`, 'error');
+      setRecording(false); return;
+    }
+    setMsg('#sttStatus', 'Listening…');
+    recognizer = new SR();
+    recognizer.lang = $('#sttLang').value;
+    recognizer.continuous = true;
+    recognizer.interimResults = true;
+    const baseline = $('#transcript').value;
+    let finalBuf = '';
+    let hadError = false;
+    recognizer.onresult = e => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) finalBuf += r[0].transcript;
+        else interim += r[0].transcript;
       }
-    }
-    if (event.code === 'Escape') {
-      if (State.mode === 'recording') {
-        chrome.runtime.sendMessage({ type: 'CANCEL_RECORDING' });
+      const sep = baseline && !baseline.endsWith('\n') ? '\n' : '';
+      $('#transcript').value = baseline + sep + finalBuf + interim;
+    };
+    recognizer.onerror = e => {
+      let msg = `Error: ${e.error}`;
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed')
+        msg = 'Microphone blocked. Check macOS System Settings → Privacy & Security → Microphone → enable Chrome, then reload.';
+      else if (e.error === 'no-speech') msg = 'No speech detected — try again.';
+      else if (e.error === 'network') msg = 'Network error (Web Speech needs internet).';
+      hadError = true;
+      setMsg('#sttStatus', msg, 'error');
+      setRecording(false);
+    };
+    recognizer.onend = () => {
+      if (recording && !hadError) {
+        try { recognizer.start(); } catch (_) {}
+      } else if (!hadError) {
+        finishWebSpeech(baseline + (baseline && !baseline.endsWith('\n') ? '\n' : '') + finalBuf);
       }
-      closeModal('modal-export');
-      closeModal('modal-integrate');
-      el.errorOverlay.style.display = 'none';
-      setMode('idle');
+    };
+    try { recognizer.start(); } catch (e) {
+      setMsg('#sttStatus', `Error: ${e.message}`, 'error');
+      setRecording(false);
     }
-  });
+    return;
+  }
 
-  document.addEventListener('keyup', async event => {
-    if (event.code === 'Space' && State.pushToTalkActive) {
-      State.pushToTalkActive = false;
-      await stopRecording();
-    }
-  });
-
-  el.btnCopy.addEventListener('click', copyOutput);
-  el.btnExport.addEventListener('click', () => openModal('modal-export'));
-  el.btnIntegrate.addEventListener('click', openIntegrationReview);
-  el.btnRefine.addEventListener('click', toggleRefine);
-  el.btnRefineSubmit.addEventListener('click', submitRefine);
-  el.refineInput.addEventListener('keydown', event => {
-    if (event.key === 'Enter') submitRefine();
-  });
-  el.btnStar.addEventListener('click', saveToLibrary);
-
-  el.btnTheme.addEventListener('click', toggleTheme);
-  el.btnSettings.addEventListener('click', () => navigateTo('settings'));
-  el.btnHistory.addEventListener('click', () => navigateTo('history'));
-  el.btnLibrary.addEventListener('click', () => navigateTo('library'));
-
-  document.querySelectorAll('[id^="btn-back-from"]').forEach(button => {
-    button.addEventListener('click', () => navigateTo('main'));
-  });
-
-  $('btn-save-settings').addEventListener('click', saveSettings);
-  $('btn-new-prompt').addEventListener('click', () => {
-    navigateTo('main');
-    el.commandInput.focus();
-  });
-
-  $('btn-clear-data').addEventListener('click', clearAllData);
-  $('btn-open-help').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('help.html') }));
-  $('btn-open-privacy').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('privacypolicy.html') }));
-
-  $('history-toggle').addEventListener('click', () => toggleSection('history-body', 'history-toggle'));
-  $('transcript-toggle').addEventListener('click', () => toggleSection('transcript-body', 'transcript-toggle'));
-
-  $('btn-clear-all-history').addEventListener('click', clearHistory);
-  $('btn-clear-history-view').addEventListener('click', clearHistory);
-  el.historySearch.addEventListener('input', event => renderHistoryList(event.target.value));
-  el.librarySearch.addEventListener('input', event => renderLibraryList(event.target.value));
-
-  $('export-md').addEventListener('click', () => exportAs('md'));
-  $('export-txt').addEventListener('click', () => exportAs('txt'));
-  $('export-json').addEventListener('click', () => exportAs('json'));
-  $('btn-close-export').addEventListener('click', () => closeModal('modal-export'));
-
-  $('btn-close-integrate').addEventListener('click', () => closeModal('modal-integrate'));
-  $('btn-close-context-review').addEventListener('click', () => closeModal('modal-context-review'));
-  $('btn-apply-context-review').addEventListener('click', saveContextReviewPreferences);
-  $('btn-reset-context-review').addEventListener('click', resetContextReviewPreferences);
-  el.integrationOptions.addEventListener('change', handleIntegrationOptionChange);
-  el.integrationTargetList.addEventListener('click', event => {
-    const button = event.target.closest('[data-target]');
-    if (!button) return;
-    selectIntegrationTarget(button.dataset.target);
-  });
-  el.btnConfirmIntegrate.addEventListener('click', confirmRouteOutput);
-
-  $('btn-error-primary').addEventListener('click', () => {
-    if (State.lastErrorType === 'mic_denied') {
-      chrome.tabs.create({ url: 'chrome://settings/content/microphone' });
+  // Live streaming branch — Deepgram or AssemblyAI with toggle on
+  const canStream = provider === 'deepgram' || provider === 'assemblyai';
+  if (canStream && $('#liveStream').checked) {
+    const keys = await Storage.getKeys();
+    const apiKey = provider === 'deepgram' ? keys.deepgramKey : keys.assemblyaiKey;
+    if (!apiKey) {
+      setMsg('#sttStatus', `Add a ${provider === 'deepgram' ? 'Deepgram' : 'AssemblyAI'} API key in Settings.`, 'error');
+      setRecording(false);
       return;
     }
-    retryLast();
-  });
-  $('btn-error-dismiss').addEventListener('click', () => {
-    el.errorOverlay.style.display = 'none';
-    setMode('idle');
-  });
-
-  document.querySelectorAll('.toggle-visibility-btn').forEach(button => {
-    button.addEventListener('click', () => {
-      const input = $(button.dataset.target);
-      if (!input) return;
-      input.type = input.type === 'password' ? 'text' : 'password';
-      button.textContent = input.type === 'password' ? 'Show' : 'Hide';
-    });
-  });
-
-  $('btn-refine-voice').addEventListener('click', () => startRecording('refine'));
-  $('btn-edit-transcript').addEventListener('click', toggleTranscriptEdit);
-
-  document.querySelectorAll('.modal-overlay').forEach(overlay => {
-    overlay.addEventListener('click', event => {
-      if (event.target === overlay) overlay.style.display = 'none';
-    });
-  });
-
-  // ── FEEDBACK ──
-  const feedbackUpBtn = $('btn-feedback-up');
-  const feedbackDownBtn = $('btn-feedback-down');
-  const feedbackNote = $('feedback-note');
-  const feedbackSubmitBtn = $('btn-feedback-submit');
-
-  if (feedbackUpBtn) feedbackUpBtn.addEventListener('click', () => submitFeedback('positive'));
-  if (feedbackDownBtn) feedbackDownBtn.addEventListener('click', () => {
-    State.lastFeedbackRating = 'negative';
-    if (feedbackNote) feedbackNote.style.display = '';
-    if (feedbackSubmitBtn) feedbackSubmitBtn.style.display = '';
-  });
-  if (feedbackSubmitBtn) feedbackSubmitBtn.addEventListener('click', () => {
-    submitFeedback('negative', feedbackNote?.value || '');
-  });
-
-  // ── REGENERATE ──
-  const regenBtn = $('btn-regenerate');
-  if (regenBtn) regenBtn.addEventListener('click', () => openModal('modal-regenerate'));
-  const confirmRegenBtn = $('btn-confirm-regenerate');
-  if (confirmRegenBtn) confirmRegenBtn.addEventListener('click', confirmRegenerate);
-  const closeRegenBtn = $('btn-close-regenerate');
-  if (closeRegenBtn) closeRegenBtn.addEventListener('click', () => closeModal('modal-regenerate'));
-
-  const closeDeviceFlowBtn = $('btn-close-device-flow');
-  if (closeDeviceFlowBtn) closeDeviceFlowBtn.addEventListener('click', () => {
-    clearDeviceFlowTimer();
-    closeModal('modal-github-device-flow');
-  });
-
-  // ── LLM PROVIDER ──
-  const llmProviderSelect = $('llm-provider');
-  if (llmProviderSelect) {
-    llmProviderSelect.addEventListener('change', () => {
-      const isOllama = llmProviderSelect.value === 'ollama';
-      const ollamaSettings = $('ollama-settings');
-      const ollamaModelField = $('ollama-model-field');
-      if (ollamaSettings) ollamaSettings.style.display = isOllama ? '' : 'none';
-      if (ollamaModelField) ollamaModelField.style.display = isOllama ? '' : 'none';
-      const hint = $('llm-provider-hint');
-      if (hint) {
-        if (llmProviderSelect.value === 'ollama') hint.textContent = 'Ollama runs locally. No API key needed, no data leaves your machine.';
-        else hint.textContent = 'Your API key is encrypted and never leaves your browser.';
-      }
-    });
-  }
-
-  // ── USAGE ──
-  const clearUsageBtn = $('btn-clear-usage');
-  if (clearUsageBtn) clearUsageBtn.addEventListener('click', async () => {
-    await chrome.runtime.sendMessage({ type: 'CLEAR_USAGE' });
-    State.usageTotals = { totalCost: 0, totalInputTokens: 0, totalOutputTokens: 0, totalRequests: 0 };
-    renderUsageDashboard();
-    showToast('Usage data cleared', 'success');
-  });
-
-  // ── TEAM TEMPLATE IMPORT/EXPORT ──
-  const exportTemplatesBtn = $('btn-export-templates');
-  if (exportTemplatesBtn) exportTemplatesBtn.addEventListener('click', exportTemplates);
-  const importTemplatesBtn = $('btn-import-templates');
-  const fileImportTemplates = $('file-import-templates');
-  if (importTemplatesBtn && fileImportTemplates) {
-    importTemplatesBtn.addEventListener('click', () => fileImportTemplates.click());
-    fileImportTemplates.addEventListener('change', importTemplates);
-  }
-  const exportHistoryBtn = $('btn-export-history');
-  if (exportHistoryBtn) exportHistoryBtn.addEventListener('click', exportHistoryData);
-  const importHistoryBtn = $('btn-import-history');
-  const fileImportHistory = $('file-import-history');
-  if (importHistoryBtn && fileImportHistory) {
-    importHistoryBtn.addEventListener('click', () => fileImportHistory.click());
-    fileImportHistory.addEventListener('change', importHistoryData);
-  }
-
-  // ── OAUTH ──
-  const oauthGithub = $('btn-oauth-github');
-  if (oauthGithub) oauthGithub.addEventListener('click', () => initiateOAuth('github'));
-  const oauthNotion = $('btn-oauth-notion');
-  if (oauthNotion) oauthNotion.addEventListener('click', () => initiateOAuth('notion'));
-  const oauthSlack = $('btn-oauth-slack');
-  if (oauthSlack) oauthSlack.addEventListener('click', () => initiateOAuth('slack'));
-}
-
-// ── Message Listener ──
-
-function setupMessageListener() {
-  chrome.runtime.onMessage.addListener(msg => {
-    switch (msg.type) {
-      case 'RECORDING_STARTED':
-        setMode('recording');
-        break;
-      case 'RECORDING_CANCELLED':
-        State.captureMode = 'default';
-        setMode('idle');
-        break;
-      case 'STATE_TRANSCRIBING':
-        setMode('transcribing');
-        if (msg.totalSegments > 1) {
-          el.micHint.textContent = `Transcribing segment 1/${msg.totalSegments}...`;
-        }
-        break;
-      case 'STATE_GENERATING':
-        setMode('generating');
-        break;
-      case 'TRANSCRIPT_PROGRESS':
-        if (State.captureMode === 'refine') {
-          el.refineInput.value = msg.transcript;
-        } else {
-          showTranscript(msg.transcript);
-        }
-        if (msg.totalSegments > 1) {
-          el.micHint.textContent = `Transcribing segment ${msg.completedSegments}/${msg.totalSegments}...`;
-        }
-        break;
-      case 'TRANSCRIPT_READY':
-        if (State.captureMode === 'refine') {
-          el.refineInput.value = msg.transcript;
-        } else {
-          showTranscript(msg.transcript);
-        }
-        break;
-      case 'INTENT_LOCAL':
-      case 'INTENT_SERVER':
-        State.intent = msg.intent;
-        showIntentBadge(msg.intent);
-        break;
-      case 'STREAM_CHUNK':
-        appendStreamChunk(msg.text);
-        break;
-      case 'GENERATION_COMPLETE':
-        State.captureMode = 'default';
-        State.output = msg.output;
-        setMode('done');
-        finalizeOutput();
-        break;
-      case 'WAVEFORM_DATA':
-        if (State.mode === 'recording') drawWaveform(msg.data);
-        break;
-      case 'HISTORY_UPDATED':
-        loadHistory();
-        break;
-      case 'ROUTE_SUCCESS':
-        showToast(`Sent to ${integrationLabel(msg.target)}`, 'success');
-        closeModal('modal-integrate');
-        break;
-      case 'ERROR':
-        State.captureMode = 'default';
-        handleError(msg.error, msg.message);
-        break;
-      case 'SHORTCUT_PUSH_TO_TALK':
-        toggleRecording();
-        break;
-      case 'SHORTCUT_COPY':
-        copyOutput();
-        break;
-      case 'SHORTCUT_HISTORY':
-        navigateTo('history');
-        break;
-      case 'SHORTCUT_RETRY':
-        retryLast();
-        break;
-      case 'BUDGET_WARNING': {
-        const fmt = v => `$${v.toFixed(4)}`;
-        if (msg.level === 'exceeded') {
-          showToast(`Monthly budget exceeded (${fmt(msg.totalCost)} / ${fmt(msg.budget)})`, 'error');
-        } else if (msg.level === 'danger') {
-          showToast(`Budget 90%+ used — ${fmt(msg.totalCost)} of ${fmt(msg.budget)}`, 'error');
-        } else {
-          showToast(`Budget 80%+ used — ${fmt(msg.totalCost)} of ${fmt(msg.budget)}`, 'info');
-        }
-        break;
-      }
-      case 'TAB_CHANGED':
-      case 'TAB_NAVIGATED':
-        handleTabChangeForAutorefresh(msg);
-        break;
+    const settings = await Storage.getSettings();
+    await ensureOffscreen();
+    liveStreaming = true;
+    liveBaseline = $('#transcript').value;
+    liveFinalBuf = '';
+    const startMsg = provider === 'deepgram'
+      ? { type: 'STREAM_START_DEEPGRAM', config: { apiKey, model: settings.deepgramModel, silenceTimeoutMs: settings.silenceTimeoutMs } }
+      : { type: 'STREAM_START_ASSEMBLYAI', config: { apiKey, silenceTimeoutMs: settings.silenceTimeoutMs } };
+    const res = await chrome.runtime.sendMessage(startMsg);
+    if (!res || !res.ok) {
+      liveStreaming = false;
+      const reason = res?.error === 'mic_denied'
+        ? 'Microphone permission denied.'
+        : (res?.message || 'Failed to open stream.');
+      setMsg('#sttStatus', reason, 'error');
+      setRecording(false);
     }
+    return;
+  }
+
+  // Cloud providers — batch mode
+  await ensureOffscreen();
+  const settings = await Storage.getSettings();
+  const res = await chrome.runtime.sendMessage({
+    type: 'REC_START',
+    config: { silenceTimeoutMs: settings.silenceTimeoutMs }
+  });
+  if (!res || !res.ok) {
+    const reason = res?.error === 'mic_denied'
+      ? 'Microphone permission denied.'
+      : (res?.message || res?.error || 'Failed to start recording.');
+    setMsg('#sttStatus', reason, 'error');
+    setRecording(false);
+    return;
+  }
+  setMsg('#sttStatus', 'Listening…');
+}
+
+async function finishWebSpeech(finalText) {
+  setMsg('#sttStatus', 'Done.', 'ok');
+  const trimmed = finalText.trim();
+  if (trimmed) {
+    await Storage.addHistory({ type: 'stt', provider: 'webspeech', text: trimmed });
+    const { autoCopyTranscript } = await Storage.getSettings();
+    if (autoCopyTranscript) {
+      try { await navigator.clipboard.writeText(trimmed); toast('Copied to clipboard.', 'ok'); } catch (_) {}
+    }
+  }
+}
+
+async function stopRecording() {
+  const provider = $('#sttProvider').value;
+
+  if (provider === 'webspeech') {
+    setRecording(false);
+    if (recognizer) { try { recognizer.stop(); } catch (_) {} recognizer = null; }
+    return;
+  }
+
+  // Live streaming stop
+  if (liveStreaming) {
+    setRecording(false);
+    await chrome.runtime.sendMessage({ type: 'STREAM_STOP' });
+    chrome.runtime.sendMessage({ type: 'CLOSE_OFFSCREEN' });
+    liveStreaming = false;
+    setMsg('#sttStatus', 'Done.', 'ok');
+    const finalText = liveFinalBuf.trim();
+    if (finalText) {
+      await Storage.addHistory({ type: 'stt', provider: `${provider}-live`, text: finalText });
+      const { autoCopyTranscript } = await Storage.getSettings();
+      if (autoCopyTranscript) {
+        try { await navigator.clipboard.writeText($('#transcript').value); toast('Copied to clipboard.', 'ok'); } catch (_) {}
+      }
+    }
+    return;
+  }
+
+  setRecording(false);
+  setMsg('#sttStatus', 'Processing…');
+  const res = await chrome.runtime.sendMessage({ type: 'REC_STOP' });
+  chrome.runtime.sendMessage({ type: 'CLOSE_OFFSCREEN' });
+
+  if (!res || !res.ok) {
+    setMsg('#sttStatus',
+      res?.error === 'audio_too_short' ? 'Audio too short.' : `Error: ${res?.error || 'unknown'}`,
+      'error');
+    return;
+  }
+
+  // Stash the blob so user can download / re-transcribe / translate
+  lastRecordedBlob = await (await fetch(res.dataUrl)).blob();
+  lastRecordedMime = res.mimeType;
+  $('#downloadAudio').disabled = false;
+
+  await transcribeCloud({ dataUrl: res.dataUrl, mimeType: res.mimeType, provider });
+}
+
+async function transcribeCloud({ dataUrl, mimeType, provider, translate }) {
+  try {
+    setMsg('#sttStatus', translate ? 'Translating…' : 'Transcribing…');
+    const settings = await Storage.getSettings();
+    const keys = await Storage.getKeys();
+    let text = '';
+    if (provider === 'assemblyai') {
+      text = await STT.assemblyai.transcribe({ audio: dataUrl, mimeType, apiKey: keys.assemblyaiKey });
+    } else if (provider === 'openai') {
+      text = await STT.openai.transcribe({
+        audio: dataUrl, mimeType, apiKey: keys.openaiKey,
+        model: settings.openaiSttModel, translate: !!translate
+      });
+    } else if (provider === 'groq') {
+      text = await STT.groq.transcribe({
+        audio: dataUrl, mimeType, apiKey: keys.groqKey, model: settings.groqSttModel
+      });
+    } else if (provider === 'deepgram') {
+      text = await STT.deepgram.transcribe({
+        audio: dataUrl, mimeType, apiKey: keys.deepgramKey, model: settings.deepgramModel
+      });
+    }
+    const cur = $('#transcript').value;
+    const sep = cur && !cur.endsWith('\n') ? '\n' : '';
+    $('#transcript').value = cur + sep + text;
+    setMsg('#sttStatus', 'Done.', 'ok');
+
+    if (text.trim()) {
+      await Storage.addHistory({ type: 'stt', provider, text: text.trim() });
+      if (settings.autoCopyTranscript) {
+        try { await navigator.clipboard.writeText(text); toast('Copied to clipboard.', 'ok'); } catch (_) {}
+      }
+    }
+  } catch (e) {
+    setMsg('#sttStatus', e.message, 'error');
+  }
+}
+
+// Copy / Clear / Download
+$('#copyTranscript').addEventListener('click', async () => {
+  await navigator.clipboard.writeText($('#transcript').value);
+  toast('Copied.', 'ok');
+});
+$('#clearTranscript').addEventListener('click', () => { $('#transcript').value = ''; });
+
+$('#downloadAudio').addEventListener('click', () => {
+  if (!lastRecordedBlob) return;
+  const ext = (lastRecordedMime.match(/audio\/([\w-]+)/) || [, 'webm'])[1].split(';')[0];
+  const url = URL.createObjectURL(lastRecordedBlob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `briefly-recording.${ext}`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+// Translate the last recording to the configured target language.
+// English → use Whisper /audio/translations (one call).
+// Anything else → transcribe in source language, then translate text via chat completions.
+// Prefers Groq (free) over OpenAI when both keys exist.
+$('#translateBtn').addEventListener('click', async () => {
+  if (!lastRecordedBlob) {
+    toast('Record audio first (then translate).', 'error');
+    return;
+  }
+  const keys = await Storage.getKeys();
+  const settings = await Storage.getSettings();
+  const target = settings.translateTargetLang || 'en';
+  const useGroq = !!keys.groqKey;
+  if (!useGroq && !keys.openaiKey) {
+    toast('Add a Groq (free) or OpenAI API key in Settings to translate.', 'error');
+    return;
+  }
+  const providerName = useGroq ? 'groq' : 'openai';
+  const targetUpper = target.toUpperCase();
+  try {
+    let translated;
+    if (target === 'en') {
+      setMsg('#sttStatus', `Translating → EN via ${useGroq ? 'Groq' : 'OpenAI'}…`);
+      translated = useGroq
+        ? await STT.groq.transcribe({
+            audio: lastRecordedBlob, mimeType: lastRecordedMime,
+            apiKey: keys.groqKey, translate: true
+          })
+        : await STT.openai.transcribe({
+            audio: lastRecordedBlob, mimeType: lastRecordedMime,
+            apiKey: keys.openaiKey, model: 'whisper-1', translate: true
+          });
+    } else {
+      setMsg('#sttStatus', `Transcribing for translation…`);
+      const source = useGroq
+        ? await STT.groq.transcribe({
+            audio: lastRecordedBlob, mimeType: lastRecordedMime,
+            apiKey: keys.groqKey
+          })
+        : await STT.openai.transcribe({
+            audio: lastRecordedBlob, mimeType: lastRecordedMime,
+            apiKey: keys.openaiKey, model: 'whisper-1'
+          });
+      setMsg('#sttStatus', `Translating → ${targetUpper}…`);
+      translated = await translateText({
+        text: source,
+        targetLang: target,
+        groqKey: keys.groqKey,
+        openaiKey: keys.openaiKey
+      });
+    }
+    const cur = $('#transcript').value;
+    const sep = cur && !cur.endsWith('\n') ? '\n' : '';
+    $('#transcript').value = cur + sep + `[${targetUpper}] ` + translated;
+    setMsg('#sttStatus', 'Translated.', 'ok');
+    await Storage.addHistory({ type: 'stt', provider: `${providerName}-translate-${target}`, text: translated });
+  } catch (e) {
+    setMsg('#sttStatus', e.message, 'error');
+  }
+});
+
+
+// ─── Drag-and-drop / file picker ─────────────────────────
+const dz = $('#dropzone');
+['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => {
+  e.preventDefault(); dz.classList.add('dragover');
+}));
+['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => {
+  e.preventDefault(); dz.classList.remove('dragover');
+}));
+dz.addEventListener('drop', e => {
+  const file = e.dataTransfer.files[0];
+  if (file) handleAudioFile(file);
+});
+$('#pickFile').addEventListener('click', () => $('#audioFile').click());
+$('#audioFile').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) handleAudioFile(file);
+});
+
+async function handleAudioFile(file) {
+  const provider = $('#sttProvider').value;
+  if (provider === 'webspeech') {
+    toast('Pick a cloud provider to transcribe a file.', 'error');
+    return;
+  }
+  lastRecordedBlob = file;
+  lastRecordedMime = file.type || 'audio/webm';
+  $('#downloadAudio').disabled = false;
+
+  const reader = new FileReader();
+  reader.onloadend = async () => {
+    await transcribeCloud({
+      dataUrl: reader.result, mimeType: file.type, provider
+    });
+  };
+  reader.readAsDataURL(file);
+}
+
+// ─── TTS ─────────────────────────────────────────────────
+let currentAudioUrl = null;
+let lastTtsBlob = null;
+
+$('#speakBtn').addEventListener('click', () => speak($('#ttsText').value.trim()));
+$('#pasteSpeak').addEventListener('click', async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    $('#ttsText').value = text; updateCharCount();
+    speak(text.trim());
+  } catch (e) {
+    toast('Clipboard read failed.', 'error');
+  }
+});
+
+async function speak(text) {
+  if (!text) { setMsg('#ttsStatus', 'Enter some text first.', 'error'); return; }
+  const provider = $('#ttsProvider').value;
+  setMsg('#ttsStatus', 'Speaking…');
+
+  if (provider === 'webspeech') {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const settings = await Storage.getSettings();
+    u.rate = settings.ttsRate;
+    u.pitch = settings.ttsPitch;
+    u.volume = settings.ttsVolume;
+    const voiceURI = $('#webspeechVoice').value;
+    const voice = speechSynthesis.getVoices().find(v => v.voiceURI === voiceURI);
+    if (voice) u.voice = voice;
+    u.onend = () => { setMsg('#ttsStatus', 'Done.', 'ok'); };
+    u.onerror = e => setMsg('#ttsStatus', `Error: ${e.error}`, 'error');
+    speechSynthesis.speak(u);
+    await Storage.addHistory({ type: 'tts', provider: 'webspeech', text });
+    return;
+  }
+
+  try {
+    const keys = await Storage.getKeys();
+    const settings = await Storage.getSettings();
+    let blob;
+    if (provider === 'elevenlabs') {
+      const voiceId = $('#elevenVoice').value || settings.elevenVoiceId;
+      blob = await TTS.elevenlabs.synthesize({
+        text, apiKey: keys.elevenlabsKey,
+        voiceId, modelId: $('#elevenModel').value,
+        stability: settings.elevenStability,
+        similarity: settings.elevenSimilarity
+      });
+    } else if (provider === 'openai') {
+      blob = await TTS.openai.synthesize({
+        text, apiKey: keys.openaiKey,
+        voice: $('#openaiVoice').value,
+        model: $('#openaiTtsModel').value
+      });
+    } else if (provider === 'streamelements') {
+      blob = await TTS.streamelements.synthesize({
+        text, voice: $('#streamElementsVoice').value || settings.streamElementsVoice
+      });
+    } else if (provider === 'gtranslate') {
+      blob = await TTS.gtranslate.synthesize({
+        text, lang: $('#gtranslateLang').value || settings.gtranslateLang
+      });
+    }
+    lastTtsBlob = blob;
+    $('#downloadTts').disabled = false;
+    if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+    currentAudioUrl = URL.createObjectURL(blob);
+    const audio = $('#ttsAudio');
+    audio.hidden = false;
+    audio.src = currentAudioUrl;
+    await audio.play();
+    setMsg('#ttsStatus', 'Done.', 'ok');
+    await Storage.addHistory({ type: 'tts', provider, text });
+  } catch (e) {
+    setMsg('#ttsStatus', e.message, 'error');
+  }
+}
+
+$('#stopSpeakBtn').addEventListener('click', () => {
+  if ($('#ttsProvider').value === 'webspeech') speechSynthesis.cancel();
+  else {
+    const audio = $('#ttsAudio');
+    audio.pause(); audio.currentTime = 0;
+  }
+  setMsg('#ttsStatus', 'Stopped.');
+});
+
+$('#downloadTts').addEventListener('click', () => {
+  if (!lastTtsBlob) return;
+  const url = URL.createObjectURL(lastTtsBlob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'briefly-tts.mp3';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+// ─── History panel ───────────────────────────────────────
+async function renderHistory() {
+  const list = $('#historyList');
+  const items = await Storage.getHistory();
+  list.innerHTML = '';
+  $('#historyEmpty').style.display = items.length ? 'none' : '';
+  items.forEach(item => {
+    const li = document.createElement('li');
+    li.className = 'history-item';
+    li.dataset.id = item.id;
+    const date = item.timestamp ? new Date(item.timestamp).toLocaleString() : '';
+    const type = (item.type || 'stt').toLowerCase();
+    const tag = type.toUpperCase();
+    li.innerHTML = `
+      <div class="head">
+        <span>${tag} · ${item.provider || ''}</span>
+        <span>${date} <button class="del" title="Delete">✕</button></span>
+      </div>
+      <div class="body"></div>
+    `;
+    li.querySelector('.body').textContent = item.text || '';
+    li.addEventListener('click', e => {
+      if (e.target.classList.contains('del')) {
+        Storage.deleteHistory(item.id).then(renderHistory);
+        return;
+      }
+      if (type === 'stt') {
+        $('#transcript').value = item.text || '';
+        $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'stt'));
+        $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === 'stt'));
+      } else {
+        $('#ttsText').value = item.text || ''; updateCharCount();
+        $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'tts'));
+        $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === 'tts'));
+      }
+      $('#historyDrawer').hidden = true;
+    });
+    list.appendChild(li);
   });
 }
 
-document.addEventListener('DOMContentLoaded', init);
+$('#clearHistory').addEventListener('click', async () => {
+  if (!confirm('Clear all history?')) return;
+  await Storage.clearHistory();
+  await renderHistory();
+});
+
+// Persist live-stream toggle
+$('#liveStream').addEventListener('change', e => {
+  chrome.storage.local.set({ liveStreamPref: e.target.checked });
+});
+
+// ─── Boot ────────────────────────────────────────────────
+(async () => {
+  await loadSettings();
+  if ($('#ttsProvider').value === 'elevenlabs') loadElevenVoices();
+  const { liveStreamPref } = await chrome.storage.local.get('liveStreamPref');
+  $('#liveStream').checked = !!liveStreamPref;
+  await maybeShowOnboarding();
+})();

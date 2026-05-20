@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Briefly — Privacy Policy</title>
+  <style>
+    :root { color-scheme: dark light; }
+    body {
+      font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 760px; margin: 40px auto; padding: 0 24px;
+      color: #1a1a1a; background: #fafafa;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #0f1115; color: #e6e9ef; }
+      a { color: #6a91ff; }
+      code { background: #1e242d; }
+    }
+    h1 { font-size: 28px; margin-bottom: 4px; }
+    h2 { font-size: 18px; margin-top: 32px; }
+    .sub { color: #777; margin-bottom: 32px; }
+    code { padding: 2px 6px; border-radius: 4px; background: #eee; font-size: 14px; }
+    ul { padding-left: 22px; }
+    li { margin-bottom: 6px; }
+    .key { background: #fffae6; padding: 12px 16px; border-radius: 8px; border-left: 4px solid #f1c40f; margin: 16px 0; }
+    @media (prefers-color-scheme: dark) {
+      .key { background: #1e1a0d; border-left-color: #d4a017; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy</h1>
+  <p class="sub">Briefly — Speech ⇄ Text Chrome Extension · Last updated 2026-05-19</p>
+
+  <div class="key">
+    <strong>The short version:</strong> Briefly does not run any server. Your audio, text, and API keys
+    live only on your device, and audio is only ever sent to the speech provider <em>you</em> select.
+    We never see, log, or store any of your data.
+  </div>
+
+  <h2>What Briefly does</h2>
+  <p>Briefly is a Chrome extension that captures microphone audio in your browser
+    and converts it to text (or vice-versa) using a speech provider of your choice
+    (Web Speech API, AssemblyAI, OpenAI, Groq, Deepgram, or ElevenLabs).</p>
+
+  <h2>What we collect</h2>
+  <p><strong>Nothing.</strong> Briefly has no backend server, no analytics, no telemetry, no crash
+    reporting, and no advertising. The author of this extension does not receive any data from
+    your use of it.</p>
+
+  <h2>What is stored locally</h2>
+  <p>The following data is stored on your device via Chrome's <code>storage.local</code> API
+    and never leaves it except as described below:</p>
+  <ul>
+    <li><strong>API keys</strong> you paste in Settings (AssemblyAI, ElevenLabs, OpenAI, Groq, Deepgram).</li>
+    <li><strong>User preferences</strong> (selected provider, voice, language, sliders).</li>
+    <li><strong>History</strong> — up to the last 50 transcripts and TTS texts. You can clear this at any time from the history drawer or Settings → Reset all.</li>
+  </ul>
+
+  <h2>What is transmitted off your device</h2>
+  <ul>
+    <li><strong>Audio you record</strong> is sent only to the speech-to-text provider you selected at the time of recording.</li>
+    <li><strong>Text you type into the TTS box</strong> is sent only to the text-to-speech provider you selected.</li>
+    <li><strong>Your API key</strong> for the selected provider is sent in the HTTP request to that provider so it can authenticate you.</li>
+  </ul>
+  <p>Each provider has its own privacy policy. Please review them before use:</p>
+  <ul>
+    <li>AssemblyAI: <a href="https://www.assemblyai.com/legal/privacy-policy" target="_blank" rel="noopener">assemblyai.com/legal/privacy-policy</a></li>
+    <li>OpenAI: <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener">openai.com/policies/privacy-policy</a></li>
+    <li>Groq: <a href="https://groq.com/privacy-policy" target="_blank" rel="noopener">groq.com/privacy-policy</a></li>
+    <li>Deepgram: <a href="https://deepgram.com/privacy" target="_blank" rel="noopener">deepgram.com/privacy</a></li>
+    <li>ElevenLabs: <a href="https://elevenlabs.io/privacy" target="_blank" rel="noopener">elevenlabs.io/privacy</a></li>
+    <li>Web Speech API (Google): handled inside the Chrome browser per Google's privacy policy.</li>
+  </ul>
+
+  <h2>Microphone access</h2>
+  <p>Briefly requests microphone access only while you are actively recording. The audio stream is
+    captured locally, processed in an offscreen document inside the extension, and either
+    consumed by the browser's built-in Web Speech API or forwarded to the cloud provider you selected.
+    The microphone stream is stopped the moment you press Stop or auto-stop fires.</p>
+
+  <h2>Cookies, tracking, third parties</h2>
+  <p>Briefly does not set cookies, does not use tracking pixels, and does not integrate with any
+    analytics or advertising service.</p>
+
+  <h2>Children</h2>
+  <p>Briefly is not directed at children under 13 and does not knowingly collect any data from anyone.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes materially, the updated version will appear at this URL with a new "Last updated" date.</p>
+
+  <h2>Contact</h2>
+  <p>Open an issue on the project's source repository, or remove the extension from Chrome at any time
+    via <code>chrome://extensions</code>.</p>
+</body>
+</html>

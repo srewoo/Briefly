@@ -1,129 +1,96 @@
-# Briefly — Chrome Extension
+# Briefly — Speech ⇄ Text Chrome Extension
 
-> **Voice-powered AI assistant that converts speech to structured text, prompts, and actions — directly in your browser.**
+A minimal Chrome side-panel extension for speech-to-text (STT) and text-to-speech (TTS) with pluggable providers, live streaming, theme toggle, retries, and one-click paste into any web page.
 
----
+> "Briefly" is the working name. Stronger options for the Chrome Web Store listing — pick one:
+> **Voxa · Spoke · Talkstrip · Whisperline · Earful · Pipevoice · Castaway · Sayblock · Quill.io**
+
+## Providers
+
+**Speech → Text**
+
+| Provider | Free? | Live streaming | Notes |
+|---|---|---|---|
+| **Web Speech API** | ✅ free, no key | yes (browser-native) | Chromium-only, requires internet. |
+| **Groq Whisper** | ✅ generous free tier | no (fast batch) | `whisper-large-v3-turbo`. |
+| **Deepgram** | 🆓 free credits | ✅ yes (WebSocket) | `nova-3`. |
+| **AssemblyAI** | 🆓 free credits | ✅ yes (Universal v3) | Token-exchanged WS. |
+| **OpenAI Whisper** | paid | no | `whisper-1`. |
+
+**Text → Speech**
+
+| Provider | Free? | Voices | Notes |
+|---|---|---|---|
+| **Web Speech API** | ✅ free, no key | OS voices | Rate / pitch / volume sliders. |
+| **StreamElements** | ✅ free, no key | 20+ Polly-backed voices | EN, FR, DE, ES, HI, JA, AU, IN accents. Auto-chunks long text. |
+| **Google Translate TTS** | ✅ free, no key | 1 voice per language | Best for short text (auto-chunked at ~190 chars). |
+| **ElevenLabs** | paid | premium AI voices | Stability + similarity controls. |
+| **OpenAI TTS** | paid | `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer` | `tts-1` / `tts-1-hd`. |
 
 ## Features
 
-| Feature | Details |
-|---------|---------|
-| 🎙️ Push-to-Talk + Toggle | Hold `Space` or click mic to record |
-| 🤖 Browser-Only STT | OpenAI Whisper / GPT‑4o transcribe, Google STT, or ElevenLabs — all called directly from the extension |
-| 🧠 12 Intents | Summarize, Prompt Gen, Tasks, Docs, Testing, Code Review, User Story, Explain, Translate, Email, Compare, Custom |
-| 📄 Full Context | Extracts: selection, code blocks, headings, structured data, forms, domain detection |
-| ⚡ GPT‑4o Output | Generates structured output (prompts, specs, tasks, docs) directly from the browser |
-| 🌙 Dark/Light Theme | Glassmorphism design, smooth theme toggle |
-| 📜 History | Last 50 outputs stored locally, searchable |
-| ⭐ Prompt Library | Save, tag, search, and star reusable prompts |
-| 🔗 Integrations | Notion, GitHub, Jira, Linear, Slack, Webhook (optional, all from the extension) |
-| ↩️ Refine | Follow-up voice or text command to iterate on output |
-| 🔑 BYOK | All API keys encrypted with AES-256-GCM on your device |
+- 🌗 **Light / Dark theme toggle** in the top bar — persists across sessions.
+- 🎙 **Live streaming STT** (Deepgram + AssemblyAI v3) — words appear as you speak.
+- 🌊 **Live waveform** during recording with pulsing record button.
+- ⏹ **Auto-stop on silence** for batch cloud providers (configurable 1.5s–6s).
+- 📋 **Auto-copy** transcript to clipboard on completion.
+- 🌐 **Translate to English** (uses Groq if available, OpenAI as fallback).
+- 📁 **Drag-and-drop audio file** to transcribe existing recordings.
+- ↓ **Download** recorded audio + synthesized TTS audio.
+- 🕘 **History drawer** — last 50 entries, click to restore.
+- ⌨ **Push-to-talk** shortcut: `⌘⇧Space` (Mac) / `Ctrl+Shift+Space` (Win/Linux).
+- 🧪 **Test API keys** before saving.
+- 🔁 **Retry-with-backoff** on 429/5xx; offline detection.
+- 🆓 **Three zero-key TTS options** — Web Speech, StreamElements, Google Translate.
+- 🔐 Keys live only in `chrome.storage.local`, only sent to the provider you pick. [Privacy](Briefly/privacy.html).
 
----
+## Zero-key quickstart
 
-## Getting Started
+Briefly is fully usable **without any API key**:
 
-### 1. Load the Extension
+1. **STT:** select **Web Speech API** in the side panel.
+2. **TTS:** select **Web Speech**, **StreamElements**, or **Google Translate**.
 
-```bash
-# Open Chrome → chrome://extensions
-# Enable Developer Mode (toggle top-right)
-# Click "Load unpacked"
-# Select: /path/to/Briefly/Briefly/
-```
+Add provider keys later only if you want premium voices, cloud STT, or live streaming.
 
-### 2. Configure API Keys
+## Load
 
-On first launch, the onboarding flow will guide you through:
-1. Granting microphone permission
-2. Adding your **OpenAI API key** (required — for Whisper + gpt-4.1)
-3. Optionally adding a **Google STT** key as an alternative provider
-4. Optionally adding an **ElevenLabs** key for their STT
+1. Open `chrome://extensions`, enable **Developer mode**.
+2. Click **Load unpacked**, select the `Briefly/` folder.
+3. Pin the extension; click its icon to open the side panel.
+4. Open ⚙ **Settings** and paste any provider API keys you want to use.
+5. Press `⌘⇧Space` from anywhere to start/stop recording.
 
-Or go to **Settings** in the side panel at any time.
-
----
-
-## Project Structure
+## Build
 
 ```
-Briefly/                 ← Chrome Extension (load unpacked from here)
-├── manifest.json            ← MV3 manifest
-├── icons/                   ← Extension icons (16, 32, 48, 128)
-├── sidepanel/               ← Main UI
-│   ├── sidepanel.html/.js/.css
-├── background/
-│   ├── service_worker.js    ← Message router + API orchestrator
-│   ├── intentClassifier.js  ← Local keyword pre-classifier  
-│   └── outputRouter.js      ← Integration dispatch (7 services)
-├── content/
-│   └── contentScript.js     ← Page context extraction (10 signals)
+npm run build   # produces dist/briefly.zip
+```
+
+## Architecture
+
+```
+Briefly/
+├── manifest.json                     MV3 — sidepanel + offscreen + scripting
+├── privacy.html                      Chrome Web Store privacy policy
+├── background/service_worker.js      Manages offscreen doc + push-to-talk
 ├── offscreen/
-│   └── audioProcessor.js    ← Mic capture + waveform via Web Audio API
-├── lib/
-│   ├── storage.js / crypto.js / markdown.js / i18n.js
-├── styles/
-│   ├── design-tokens.css / animations.css / themes.css
-└── onboarding/              ← First-run 6-step tutorial
+│   ├── offscreen.html
+│   └── recorder.js                   MediaRecorder + WebSocket streaming + AudioWorklet PCM
+├── sidepanel/
+│   ├── sidepanel.html / .css / .js   Two tabs (STT, TTS), settings, history
+└── lib/
+    ├── storage.js                    Settings + keys + history
+    └── providers.js                  All provider adapters + rfetch (retry)
 
-serverBKP/                   ← (Optional / legacy) Node.js backend used in early versions.  
-                             Not required for the extension to work; all AI calls now happen in the browser.
+store-assets/                         Hero SVG + screenshot guide + GIF script
 ```
 
----
+## Browser support
+**Chrome / Edge (Chromium):** full support via the `sidePanel` API.
+**Firefox:** not yet — Firefox doesn't implement MV3 `sidePanel`. A separate Firefox build with a popup fallback is on the roadmap.
 
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `⌘⇧P` | Open/close side panel |
-| `⌘⇧Space` | Push-to-talk record |
-| `Space` (hold, in panel) | Push-to-talk |
-| `⌘⇧C` | Copy last output |
-| `⌘⇧H` | Toggle history |
-| `Esc` | Cancel recording |
-
----
-
-## Supported Integrations
-
-Connect via **Settings → Integrations**:
-
-- **Notion** — Append to pages
-- **GitHub** — Create issues
-- **Jira** — Create/update tickets
-- **Linear** — Create issues (GraphQL API)
-- **Slack** — Post via Incoming Webhooks
-- **Confluence** — Append to pages
-- **Custom Webhook** — POST to any endpoint
-
----
-
-## Security & Privacy
-
-- **BYOK model** — You supply your own API keys
-- **AES-256-GCM encryption** — Keys encrypted at rest in `chrome.storage.local`
-- **Zero audio retention** — Audio blob destroyed immediately after transcription
-- **Minimal permissions** — `activeTab`, `sidePanel`, `storage`, `offscreen` only
-- **No analytics** — No usage data sent to any server
-
----
-
-## Development
-
-```bash
-# Extension: just reload unpacked in chrome://extensions after changes
-# (No build step needed — all logic runs in the browser)
-```
-
----
-
-## Roadmap
-
-**v1.0 (current)** — Full local + cloud pipeline  
-**v2.0** — Team shared library, wake word ("Hey Briefly"), cloud sync, analytics
-
----
-
-*Built with ❤️ as a full-featured v1.0 product — not an MVP.*
+## Known limits
+- Groq has **no streaming STT** — it's batch only (but fast enough that auto-stop-on-silence feels near-live).
+- OpenAI new projects need explicit Whisper access (Settings → Limits in your OpenAI dashboard) or your request will 403.
+- Web Speech API works only in Chromium and requires internet (it routes through Google).

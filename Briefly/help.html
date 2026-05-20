@@ -1,129 +1,181 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Briefly – Help</title>
-  <link rel="stylesheet" href="styles/design-tokens.css" />
-  <link rel="stylesheet" href="styles/animations.css" />
-  <link rel="stylesheet" href="styles/themes.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Briefly — Help & User Guide</title>
   <style>
+    :root {
+      color-scheme: dark light;
+      --bg: #fafafa;
+      --text: #1a1f2b;
+      --muted: #5e6776;
+      --border: #d8dde6;
+      --chip-bg: rgba(127, 127, 127, 0.14);
+      --chip-border: rgba(127, 127, 127, 0.28);
+      --th-bg: rgba(127, 127, 127, 0.10);
+      --accent: #3360e6;
+      --tip-bg: rgba(51, 96, 230, 0.10);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1115;
+        --text: #e6e9ef;
+        --muted: #8a93a3;
+        --border: #2a3140;
+        --chip-bg: rgba(255, 255, 255, 0.08);
+        --chip-border: rgba(255, 255, 255, 0.18);
+        --th-bg: rgba(255, 255, 255, 0.05);
+        --accent: #6a91ff;
+        --tip-bg: rgba(106, 145, 255, 0.10);
+      }
+    }
     body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
-      margin: 0;
-      padding: 32px 24px 40px;
-      background: var(--color-surface-elevated);
-      color: var(--color-text-primary);
+      font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 760px; margin: 40px auto; padding: 0 24px;
+      color: var(--text); background: var(--bg);
     }
-    .container {
-      max-width: 760px;
-      margin: 0 auto;
-    }
-    h1 {
-      font-size: 1.6rem;
-      margin-bottom: 0.5rem;
-    }
+    a { color: var(--accent); }
+    h1 { font-size: 28px; margin-bottom: 4px; }
     h2 {
-      font-size: 1.1rem;
-      margin-top: 1.75rem;
-      margin-bottom: 0.5rem;
+      font-size: 20px; margin-top: 36px;
+      border-bottom: 1px solid var(--border); padding-bottom: 6px;
     }
-    p {
-      line-height: 1.5;
-      margin: 0.35rem 0;
+    h3 { font-size: 16px; margin-top: 24px; }
+    .sub { color: var(--muted); margin-bottom: 28px; }
+
+    code, kbd {
+      padding: 2px 7px; border-radius: 5px;
+      background: var(--chip-bg);
+      color: var(--text);
+      font: 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
     }
-    ul {
-      padding-left: 1.2rem;
-      margin: 0.35rem 0 0.75rem;
+    kbd { border: 1px solid var(--chip-border); }
+
+    ul { padding-left: 22px; }
+    li { margin-bottom: 6px; }
+
+    table {
+      width: 100%; border-collapse: collapse;
+      margin: 12px 0;
+      border: 1px solid var(--border);
     }
-    code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: 0.85rem;
-      background: var(--color-surface-subtle);
-      padding: 0.1rem 0.3rem;
-      border-radius: 4px;
+    th, td {
+      padding: 9px 12px; text-align: left;
+      border: 1px solid var(--border);
+      vertical-align: top;
+      color: var(--text);
     }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      font-size: 0.8rem;
-      padding: 0.15rem 0.55rem;
-      border-radius: 999px;
-      background: var(--color-accent-soft);
-      color: var(--color-accent-strong);
-      margin-bottom: 0.9rem;
+    th { background: var(--th-bg); font-weight: 600; }
+    tbody tr:nth-child(even) td { background: var(--th-bg); }
+
+    .tip {
+      background: var(--tip-bg);
+      border-left: 4px solid var(--accent);
+      padding: 12px 16px; border-radius: 8px; margin: 16px 0;
     }
-    .kbd {
-      display: inline-block;
-      padding: 0.1rem 0.35rem;
-      border-radius: 4px;
-      border: 1px solid var(--color-border-subtle);
-      font-size: 0.75rem;
-      background: var(--color-surface-subtle);
+
+    .footer {
+      margin-top: 56px; padding-top: 18px;
+      border-top: 1px solid var(--border);
+      color: var(--muted); font-size: 14px;
     }
-    .section-card {
-      padding: 1rem 1.1rem;
-      border-radius: 10px;
-      background: var(--color-surface-subtle);
-      border: 1px solid var(--color-border-subtle);
-      margin-top: 0.75rem;
-    }
+    .footer a { margin-right: 16px; }
   </style>
 </head>
 <body>
-  <main class="container">
-    <span class="badge">Briefly · Help</span>
-    <h1>Using Briefly</h1>
-    <p>Briefly is an AI side panel for your browser. You can speak or type requests, inspect the captured page context, and turn that into structured output you can copy, refine, export, save, or route into your tools.</p>
+  <h1>Briefly — Help & User Guide</h1>
+  <p class="sub">Voice ⇄ Text in your browser. Free providers, no account required.</p>
 
-    <h2>Basic flow</h2>
-    <div class="section-card">
-      <p><strong>1. Open the side panel</strong> – click the Briefly icon or use the keyboard shortcut defined in Chrome.</p>
-      <p><strong>2. Capture or type</strong> – click the mic button or hold <span class="kbd">Space</span> while the panel is focused, or type directly into the command composer.</p>
-      <p><strong>3. Pick a recipe</strong> – choose a workflow such as bug report, PR review, test plan, spec, release notes, or customer reply.</p>
-      <p><strong>4. Transcribe</strong> – if you used voice, audio is sent directly from the extension to your selected Speech-to-Text provider (OpenAI, Google, or ElevenLabs).</p>
-      <p><strong>5. Generate</strong> – the request plus selected page context is sent directly from the extension to an LLM (OpenAI), which produces the result.</p>
-      <p><strong>6. Use the output</strong> – copy it, refine it, export it, save it to the library, apply it into the current page, or use <strong>Review &amp; Send</strong> to route it to Notion, GitHub, Jira, Linear, Slack, Confluence, or a webhook.</p>
-    </div>
+  <h2>Quick start</h2>
+  <ol>
+    <li>Click the Briefly icon in the toolbar to open the side panel (or press <kbd>⌘⇧P</kbd> / <kbd>Ctrl+Shift+P</kbd>).</li>
+    <li>Pick a <strong>Speech → Text</strong> provider. <strong>Web Speech API</strong> works with no key.</li>
+    <li>Hit <strong>🎙 Start recording</strong>, speak, then <strong>⏹ Stop</strong> — or wait for auto-stop on silence.</li>
+    <li>For <strong>Text → Speech</strong>, paste text and pick a voice. <strong>StreamElements</strong> and <strong>Google Translate</strong> work with no key.</li>
+  </ol>
 
-    <h2>Turning ideas into prompts and specs</h2>
-    <p>You can open Briefly on any page (even an empty one), click the mic, and talk through what you want to build. Briefly will:</p>
-    <ul>
-      <li>Transcribe your speech into text.</li>
-      <li>Classify your intent (for example <em>prompt generation</em>, <em>task extraction</em>, <em>user story</em>, or <em>documentation</em>).</li>
-      <li>Generate a structured output you can use as a prompt, spec, or backlog.</li>
-    </ul>
-    <p>Briefly now splits longer recordings into transcription segments automatically, so you can capture longer thoughts without losing the whole run to a single timeout. Shorter recordings are still faster to process, and the <strong>Refine</strong> controls remain the best way to iterate.</p>
+  <h2>Keyboard shortcuts</h2>
+  <table>
+    <thead>
+      <tr><th>Shortcut</th><th>Action</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><kbd>⌘⇧P</kbd> / <kbd>Ctrl+Shift+P</kbd></td><td>Open Briefly side panel</td></tr>
+      <tr><td><kbd>⌘⇧Space</kbd> / <kbd>Ctrl+Shift+Space</kbd></td><td>Push-to-talk — toggle recording from anywhere</td></tr>
+    </tbody>
+  </table>
+  <p>You can rebind these at <code>chrome://extensions/shortcuts</code>.</p>
 
-    <h2>History and prompt library</h2>
-    <ul>
-      <li>Every run is saved to <strong>History</strong> in the main view.</li>
-      <li>You can restore a past item to bring back its transcript, intent, and output.</li>
-      <li>Use the ⭐ button to add important outputs to the <strong>Prompt Library</strong> for quick reuse.</li>
-    </ul>
+  <h2>Speech → Text providers</h2>
+  <table>
+    <thead>
+      <tr><th>Provider</th><th>Free?</th><th>Live streaming</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Web Speech API</td><td>✅ no key</td><td>Built-in</td><td>Chromium-only. Requires internet.</td></tr>
+      <tr><td>Groq Whisper</td><td>✅ free tier</td><td>—</td><td>Very fast batch (<code>whisper-large-v3-turbo</code>).</td></tr>
+      <tr><td>Deepgram</td><td>🆓 free credits</td><td>✅ WebSocket</td><td><code>nova-3</code>.</td></tr>
+      <tr><td>AssemblyAI</td><td>🆓 free credits</td><td>✅ Universal v3</td><td>Short-lived token-exchanged WS.</td></tr>
+      <tr><td>OpenAI Whisper</td><td>Paid</td><td>—</td><td><code>whisper-1</code>.</td></tr>
+    </tbody>
+  </table>
 
-    <h2>Integrations</h2>
-    <p>In <strong>Settings → Integrations</strong> you can provide the tokens and target IDs needed for Notion, GitHub, Jira, Linear, Slack, Confluence, or a custom webhook. Once configured, the <strong>Review &amp; Send</strong> flow lets you preview the payload and route the latest output into those tools.</p>
-    <ul>
-      <li><strong>Apply to Page</strong> inserts the current output into the best detected editable field on the current page after you confirm it.</li>
-      <li><strong>GitHub</strong> can now comment on the current issue or pull request when you run Briefly directly on that page; otherwise it falls back to creating an issue in your configured repo.</li>
-      <li><strong>Jira</strong> can now comment on the current ticket when you run Briefly on a Jira issue page; otherwise it creates a new issue in your configured project.</li>
-    </ul>
+  <h2>Text → Speech providers</h2>
+  <table>
+    <thead>
+      <tr><th>Provider</th><th>Free?</th><th>Voices</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Web Speech API</td><td>✅ no key</td><td>OS voices with rate / pitch / volume sliders</td></tr>
+      <tr><td>StreamElements</td><td>✅ no key</td><td>20+ Polly-backed voices, multiple accents and languages</td></tr>
+      <tr><td>Google Translate TTS</td><td>✅ no key</td><td>1 voice per language, best for short text</td></tr>
+      <tr><td>ElevenLabs</td><td>Paid</td><td>Premium AI voices with stability + similarity controls</td></tr>
+      <tr><td>OpenAI TTS</td><td>Paid</td><td><code>alloy</code>, <code>echo</code>, <code>fable</code>, <code>onyx</code>, <code>nova</code>, <code>shimmer</code></td></tr>
+    </tbody>
+  </table>
 
-    <h2>Microphone and permissions</h2>
-    <ul>
-      <li>Chrome will ask for microphone permission the first time you record. Choose <strong>Allow</strong>.</li>
-      <li>If you blocked it earlier, go to <code>chrome://settings/content/microphone</code> and allow the Briefly extension.</li>
-      <li>You can clear all local data (history, settings, keys) from <strong>Settings → Data &amp; Privacy → Clear All Local Data</strong>.</li>
-    </ul>
+  <h2>Settings</h2>
+  <ul>
+    <li><strong>API keys</strong> — paste a key into the matching field. Click <strong>Test</strong> to verify before saving.</li>
+    <li><strong>Translate button → target language</strong> — sets where the 🌐 Translate button sends your last recording. English uses Whisper translation; any other target transcribes then runs a chat-completion translation.</li>
+    <li><strong>Auto-copy transcript</strong> — copies the transcript to clipboard the moment transcription finishes.</li>
+    <li><strong>Auto-stop on silence</strong> — applies to cloud STT providers, including live streaming.</li>
+    <li><strong>Theme</strong> — toggle Dark / Light from the top bar.</li>
+  </ul>
 
-    <h2>Troubleshooting</h2>
-    <ul>
-      <li><strong>“Microphone Access Denied”</strong> – check Chrome’s mic settings and macOS Privacy &amp; Security → Microphone.</li>
-      <li><strong>“Processing Failed”</strong> – verify your OpenAI key in <strong>Settings → API Keys</strong> and that you have access to the configured models.</li>
-      <li><strong>No output</strong> – ensure your STT provider key is set (Google / ElevenLabs) or transcription models are allowed for your OpenAI project.</li>
-    </ul>
-  </main>
+  <h2>Features</h2>
+  <ul>
+    <li><strong>🌊 Live waveform</strong> + pulsing record button while capturing.</li>
+    <li><strong>⏹ Auto-stop on silence</strong> after 1.5 – 6 s, configurable.</li>
+    <li><strong>🌐 Translate</strong> the last recording to any of 14 languages (Mandarin, Spanish, French, German, Hindi, Japanese, …).</li>
+    <li><strong>📁 Drag-and-drop</strong> audio files to transcribe.</li>
+    <li><strong>↓ Download</strong> recorded audio and synthesized TTS audio.</li>
+    <li><strong>🕘 History drawer</strong> — last 50 entries, click to restore.</li>
+    <li><strong>🔁 Retry-with-backoff</strong> on 429 / 5xx; offline detection.</li>
+  </ul>
+
+  <h2>Troubleshooting</h2>
+  <h3>Microphone permission denied</h3>
+  <p>Open <code>chrome://settings/content/microphone</code> and grant access to the extension's origin. Then reload the side panel.</p>
+
+  <h3>Live streaming doesn't start</h3>
+  <p>Check that the relevant API key is present and tested OK in Settings. Watch the side-panel status text for the exact error (e.g., <code>403</code> means an invalid key).</p>
+
+  <h3>"Audio too short" after recording</h3>
+  <p>Recordings under ~500 bytes are rejected. Speak for at least a second.</p>
+
+  <h3>Translation fails on non-English target</h3>
+  <p>Non-English targets need a Groq (free) or OpenAI key — the audio is transcribed first, then translated via chat completions.</p>
+
+  <h2>Privacy</h2>
+  <div class="tip">
+    Your API keys live only in <code>chrome.storage.local</code> on this device and are sent <em>only</em> to the provider you select.
+    See the full <a href="privacy.html">Privacy Policy</a> for details.
+  </div>
+
+  <div class="footer">
+    <a href="privacy.html">Privacy Policy</a>
+  </div>
 </body>
 </html>
