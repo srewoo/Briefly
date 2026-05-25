@@ -508,6 +508,17 @@ async function startRecording() {
       setRecording(false);
       return;
     }
+    // Warm up mic permission from the side panel — offscreen documents
+    // cannot surface a permission prompt, so we must grant here first.
+    const perm = await ensureMicPermission();
+    if (!perm.ok) {
+      setMsg('#sttStatus',
+        perm.error === 'mic_denied'
+          ? 'Microphone permission denied. Click the camera/mic icon in the address bar (or macOS System Settings → Privacy & Security → Microphone → enable Chrome) and try again.'
+          : `Mic error: ${perm.message}`, 'error');
+      setRecording(false);
+      return;
+    }
     const settings = await Storage.getSettings();
     await ensureOffscreen();
     liveStreaming = true;
@@ -528,7 +539,18 @@ async function startRecording() {
     return;
   }
 
-  // Cloud providers — batch mode
+  // Cloud providers — batch mode.
+  // Warm up mic permission from the side panel — offscreen documents
+  // cannot surface a permission prompt, so we must grant here first.
+  const perm = await ensureMicPermission();
+  if (!perm.ok) {
+    setMsg('#sttStatus',
+      perm.error === 'mic_denied'
+        ? 'Microphone permission denied. Click the camera/mic icon in the address bar (or macOS System Settings → Privacy & Security → Microphone → enable Chrome) and try again.'
+        : `Mic error: ${perm.message}`, 'error');
+    setRecording(false);
+    return;
+  }
   await ensureOffscreen();
   const settings = await Storage.getSettings();
   const res = await chrome.runtime.sendMessage({
