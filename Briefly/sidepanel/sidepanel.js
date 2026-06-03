@@ -904,7 +904,13 @@ async function renderHistory() {
         Storage.deleteHistory(item.id).then(renderHistory);
         return;
       }
-      if (type === 'stt') {
+      if (type === 'listen') {
+        // Switch to the Listen tab and let listen.js replay the entry
+        // (cached audio → free, instant).
+        $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'listen'));
+        $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === 'listen'));
+        window.dispatchEvent(new CustomEvent('briefly-replay-listen', { detail: item }));
+      } else if (type === 'stt') {
         $('#transcript').value = item.text || '';
         $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'stt'));
         $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === 'stt'));

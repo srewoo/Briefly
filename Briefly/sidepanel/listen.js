@@ -214,6 +214,19 @@ function batchParagraphs(paragraphs, maxChars) {
 
 const send = (msg) => chrome.runtime.sendMessage(msg);
 
+// "Listened" history: segments + metadata only — NEVER provider options
+// (they contain API keys). Replay rebuilds options from current Settings,
+// so cached audio replays free and instantly.
+function saveListenHistory(mode, provider, segments) {
+  if (!page || !segments?.length) return;
+  Storage.addHistory({
+    type: 'listen',
+    provider,
+    text: `${page.title || page.siteName} · ${mode}`,
+    listen: { mode, title: page.title, url: page.url, segments }
+  }).catch(() => {});
+}
+
 async function start() {
   if (!page) return;
   const status = $('#listenStatus');
@@ -227,7 +240,9 @@ async function start() {
     await send({ type: 'ENSURE_OFFSCREEN' });
 
     if (mode === 'read') {
-      await send({ type: 'LISTEN_START', ...base, segments: page.paragraphs.map(p => ({ text: p.text, srcIdx: p.idx })) });
+      const segments = page.paragraphs.map(p => ({ text: p.text, srcIdx: p.idx }));
+      await send({ type: 'LISTEN_START', ...base, segments });
+      saveListenHistory(mode, provider, segments);
       return;
     }
 
@@ -239,6 +254,7 @@ async function start() {
       if (mySession !== genSession) return;
       const hostCfg = buildHostVoices(provider, { options, voiceSig });
       await send({ type: 'LISTEN_START', ...base, ...hostCfg, segments: turns });
+      saveListenHistory(mode, provider, turns);
       return;
     }
 
@@ -250,7 +266,9 @@ async function start() {
         ? await generateSummary({ text: fullText, minutes, keys })
         : await generateTechBrief({ text: fullText, pageType: pageType || 'technical document', keys });
       if (mySession !== genSession) return;
-      await send({ type: 'LISTEN_START', ...base, segments: toSegments(script) });
+      const segments = toSegments(script);
+      await send({ type: 'LISTEN_START', ...base, segments });
+      saveListenHistory(mode, provider, segments);
       return;
     }
 
@@ -266,6 +284,8 @@ async function start() {
       const first = await rewriteBatch(batches[0]);
       if (mySession !== genSession) return;
       await send({ type: 'LISTEN_START', ...base, streaming: true, segments: first });
+      const allSegments = [...first];
+      let complete = false;
       try {
         for (let b = 1; b < batches.length; b++) {
           if (mySession !== genSession) return;
@@ -273,10 +293,14 @@ async function start() {
           const segs = await rewriteBatch(batches[b]);
           if (mySession !== genSession) return;
           await send({ type: 'LISTEN_APPEND', segments: segs });
+          allSegments.push(...segs);
         }
+        complete = true;
       } finally {
         if (mySession === genSession) await send({ type: 'LISTEN_COMPLETE' });
       }
+      // Save only fully-generated sessions — a partial explain isn't replayable.
+      if (complete) saveListenHistory(mode, provider, allSegments);
     }
   } catch (e) {
     if (mySession === genSession) status.textContent = String(e.message || e);
@@ -360,6 +384,39 @@ $('#playerPrev').addEventListener('click', () => sendControl('LISTEN_SEEK', { de
 $('#playerNext').addEventListener('click', () => sendControl('LISTEN_SEEK', { delta: 1 }));
 $('#playerRate').addEventListener('change', () =>
   sendControl('LISTEN_RATE', { rate: Number($('#playerRate').value) || 1 }));
+
+// Replay a "Listened" history entry (dispatched by the history drawer).
+// Same segments + same voice settings → IndexedDB cache hits → free + instant.
+window.addEventListener('briefly-replay-listen', async (e) => {
+  const item = e.detail;
+  const h = item?.listen;
+  const status = $('#listenStatus');
+  if (!h?.segments?.length) { status.textContent = 'This entry has no replayable audio.'; return; }
+  genSession++;
+  try {
+    const provider = h.provider || item.provider;
+    const { options, voiceSig } = await buildOptions(provider);
+    const hostCfg = h.mode === 'podcast' ? buildHostVoices(provider, { options, voiceSig }) : {};
+    // Highlight sync only makes sense if we're still on the same page.
+    if (!page || page.url !== h.url) pageTabId = null;
+    $('#pageTitle').textContent = h.title || 'Replaying from history';
+    $('#pageMeta').textContent = `Replay · ${h.mode} · ${h.segments.length} segments`;
+    status.textContent = 'Replaying…';
+    await send({ type: 'ENSURE_OFFSCREEN' });
+    await send({
+      type: 'LISTEN_START',
+      title: h.title,
+      provider,
+      options,
+      voiceSig,
+      ...hostCfg,
+      rate: Number($('#playerRate').value) || 1,
+      segments: h.segments
+    });
+  } catch (err) {
+    status.textContent = String(err.message || err);
+  }
+});
 
 // Re-sync with an already-running player when the panel reopens.
 send({ type: 'LISTEN_GET_STATE' })
