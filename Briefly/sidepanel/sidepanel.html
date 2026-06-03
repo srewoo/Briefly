@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Briefly</title>
     <link rel="stylesheet" href="sidepanel.css" />
+    <link rel="stylesheet" href="listen.css" />
   </head>
   <body>
     <header class="topbar">
@@ -27,6 +28,7 @@
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="stt" role="tab">Speech → Text</button>
       <button class="tab" data-tab="tts" role="tab">Text → Speech</button>
+      <button class="tab" data-tab="listen" role="tab">🎧 Listen</button>
     </nav>
 
     <!-- ── STT ──────────────────────────────────── -->
@@ -241,6 +243,84 @@
       <audio id="ttsAudio" controls hidden></audio>
     </section>
 
+    <!-- ── Listen (Read Page) ──────────────────────────────── -->
+    <section class="panel" data-panel="listen">
+      <div class="page-card" id="pageCard">
+        <div class="page-title" id="pageTitle">No page detected</div>
+        <div class="page-meta muted small" id="pageMeta">Open a page and click ⟳ Detect page.</div>
+        <div class="row gap" style="margin-top:8px">
+          <button id="detectPage" class="ghost-btn small">⟳ Detect page</button>
+        </div>
+      </div>
+
+      <fieldset class="mode-group">
+        <legend>Mode</legend>
+        <label class="radio"><input type="radio" name="listenMode" value="read" checked />
+          <span>Read aloud</span></label>
+        <label class="radio"><input type="radio" name="listenMode" value="explain" />
+          <span>Explain while reading <em class="badge">AI</em></span></label>
+        <label class="radio"><input type="radio" name="listenMode" value="summary" />
+          <span>Summary <em class="badge">AI</em></span></label>
+        <label class="radio disabled" id="techbriefRow" title="Enabled when a Jira / Confluence / MR / API-doc page is detected">
+          <input type="radio" name="listenMode" value="techbrief" disabled />
+          <span id="techbriefLabel">Technical brief <em class="badge">AI</em></span></label>
+        <label class="radio">
+          <input type="radio" name="listenMode" value="podcast" />
+          <span>Podcast (2 hosts) <em class="badge">AI</em></span></label>
+      </fieldset>
+
+      <label class="field" id="lengthField" hidden>
+        <span>Length</span>
+        <select id="listenLength">
+          <option value="2" selected>2 min — what do I need to know?</option>
+          <option value="5">5 min — give me details</option>
+          <option value="15">15 min — deep dive</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Voice provider</span>
+        <select id="listenProvider">
+          <option value="webspeech">Web Speech API (free)</option>
+          <option value="groqtts">Groq TTS (free tier)</option>
+          <option value="deepgramtts">Deepgram Aura ($200 free credit)</option>
+          <option value="openai">OpenAI TTS</option>
+          <option value="elevenlabs">ElevenLabs</option>
+        </select>
+      </label>
+      <p class="muted small" id="listenCost">Est. cost: free</p>
+
+      <div class="row gap">
+        <button id="listenStart" class="primary-btn" disabled>▶ Start listening</button>
+        <span id="listenStatus" class="status muted">Idle</span>
+      </div>
+
+      <div class="player" id="listenPlayer" hidden>
+        <div class="player-progress">
+          <span id="playerSeg" class="muted small">– / –</span>
+          <progress id="playerBar" max="1" value="0"></progress>
+        </div>
+        <div class="row gap wrap">
+          <button id="playerPrev" class="ghost-btn" title="Previous paragraph">⏮</button>
+          <button id="playerToggle" class="primary-btn">❚❚ Pause</button>
+          <button id="playerNext" class="ghost-btn" title="Next paragraph">⏭</button>
+          <button id="playerStop" class="ghost-btn">■ Stop</button>
+          <button id="playerDownload" class="ghost-btn" hidden title="Save episode as MP3">↓ .mp3</button>
+          <label class="field rate-field">
+            <span>Speed</span>
+            <select id="playerRate">
+              <option value="0.8">0.8×</option>
+              <option value="1" selected>1×</option>
+              <option value="1.25">1.25×</option>
+              <option value="1.5">1.5×</option>
+              <option value="2">2×</option>
+            </select>
+          </label>
+        </div>
+        <p class="muted small">Playback continues even if you close this panel.</p>
+      </div>
+    </section>
+
     <!-- ── History drawer ──────────────────────────────────── -->
     <aside id="historyDrawer" class="drawer" hidden>
       <div class="drawer-head">
@@ -328,5 +408,6 @@
     <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
     <script type="module" src="sidepanel.js"></script>
+    <script type="module" src="listen.js"></script>
   </body>
 </html>

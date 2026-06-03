@@ -1,11 +1,17 @@
 {
   "name": "briefly-extension",
-  "version": "2.0.0",
+  "version": "2.2",
   "private": true,
   "description": "Briefly — minimal STT/TTS Chrome extension with pluggable providers (Web Speech, AssemblyAI, ElevenLabs, OpenAI).",
   "scripts": {
     "build": "rm -rf dist && mkdir -p dist && cd Briefly && zip -r ../dist/briefly.zip ."
   },
-  "keywords": ["chrome-extension", "speech-to-text", "text-to-speech", "stt", "tts"],
+  "keywords": [
+    "chrome-extension",
+    "speech-to-text",
+    "text-to-speech",
+    "stt",
+    "tts"
+  ],
   "license": "MIT"
 }

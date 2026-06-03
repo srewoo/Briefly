@@ -1,7 +1,7 @@
 // STT + TTS provider adapters.
 
 // fetch wrapper: retries on 429 + 5xx, exponential backoff, offline detection.
-async function rfetch(url, init = {}, opts = {}) {
+export async function rfetch(url, init = {}, opts = {}) {
   const { retries = 3, baseMs = 600, label = '' } = opts;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new Error(`${label || 'Network'}: you appear to be offline.`);
@@ -45,7 +45,7 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([bytes], { type: mime });
 }
 
-function chunkText(text, max) {
+export function chunkText(text, max) {
   const out = [];
   const parts = text.split(/(\s+|(?<=[.!?,;:])\s*)/);
   let buf = '';
@@ -392,6 +392,62 @@ export const TTS = {
       if (!res.ok) throw new Error(`ElevenLabs voices failed: ${res.status}`);
       const j = await res.json();
       return (j.voices || []).map(v => ({ id: v.voice_id, name: v.name }));
+    }
+  },
+  groqtts: {
+    name: 'Groq TTS (PlayAI, free tier)',
+    needsKey: 'groqKey',
+    async synthesize({ text, apiKey, voice, model }) {
+      if (!apiKey) throw new Error('Groq API key required.');
+      const body = {
+        model: model || 'canopylabs/orpheus-v1-english',
+        voice: voice || 'hannah',
+        input: text,
+        response_format: 'mp3'
+      };
+      let res = await rfetch('https://api.groq.com/openai/v1/audio/speech', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }, { label: 'Groq TTS' });
+      if (res.status === 400) {
+        // Some deployments only accept wav — retry once with wav.
+        res = await rfetch('https://api.groq.com/openai/v1/audio/speech', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...body, response_format: 'wav' })
+        }, { label: 'Groq TTS' });
+      }
+      if (!res.ok) {
+        const t = await res.text();
+        if (t.includes('terms acceptance')) {
+          throw new Error(
+            'Groq TTS needs a one-time terms acceptance: open ' +
+            'console.groq.com/playground, select the Orpheus TTS model, ' +
+            'accept the terms, then try again.'
+          );
+        }
+        throw new Error(`Groq TTS failed: ${res.status} ${t.slice(0, 200)}`);
+      }
+      return await res.blob();
+    }
+  },
+  deepgramtts: {
+    name: 'Deepgram Aura ($200 free credit)',
+    needsKey: 'deepgramKey',
+    async synthesize({ text, apiKey, model }) {
+      if (!apiKey) throw new Error('Deepgram API key required.');
+      const params = new URLSearchParams({ model: model || 'aura-2-thalia-en' });
+      const res = await rfetch(`https://api.deepgram.com/v1/speak?${params}`, {
+        method: 'POST',
+        headers: { Authorization: `Token ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      }, { label: 'Deepgram TTS' });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(`Deepgram TTS failed: ${res.status} ${t.slice(0, 200)}`);
+      }
+      return await res.blob();
     }
   },
   openai: {

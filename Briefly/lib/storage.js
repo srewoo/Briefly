@@ -18,6 +18,9 @@ const DEFAULTS = {
   groqSttModel: 'whisper-large-v3-turbo',
   // Deepgram
   deepgramModel: 'nova-3',
+  deepgramTtsModel: 'aura-2-thalia-en',
+  // Groq TTS (Orpheus voices: hannah, troy, austin)
+  groqTtsVoice: 'hannah',
   // StreamElements
   streamElementsVoice: 'Brian',
   // Google Translate TTS
