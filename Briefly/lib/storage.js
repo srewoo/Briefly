@@ -21,10 +21,7 @@ const DEFAULTS = {
   deepgramTtsModel: 'aura-2-thalia-en',
   // Groq TTS (Orpheus voices: hannah, troy, austin)
   groqTtsVoice: 'hannah',
-  // StreamElements
-  streamElementsVoice: 'Brian',
-  // Microsoft Edge TTS (free neural) + FreeTTS (free neural) — MS voice names
-  edgeTtsVoice: 'en-US-AriaNeural',
+  // FreeTTS (free neural) — Microsoft voice names
   freeTtsVoice: 'en-US-JennyNeural',
   // Google Translate TTS
   gtranslateLang: 'en',

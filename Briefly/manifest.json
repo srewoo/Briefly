@@ -55,9 +55,7 @@
     "https://api.deepgram.com/*",
     "https://asr.api.speechmatics.com/*",
     "https://api.groq.com/*",
-    "https://api.streamelements.com/*",
     "https://translate.google.com/*",
-    "https://speech.platform.bing.com/*",
     "https://freetts.org/*"
   ],
   "web_accessible_resources": [

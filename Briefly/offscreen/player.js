@@ -9,9 +9,9 @@ import { cacheKey, cacheGet, cachePut } from '../lib/audio-cache.js';
 const LOOKAHEAD = 2;
 // Per-request input caps: Deepgram /speak rejects >2000 chars; Groq PlayAI
 // caps around 10k but long inputs degrade — keep requests modest.
-// FreeTTS caps the free tier at 1000 chars/request; Edge is generous but keep
-// segments modest so the lookahead pipeline hides latency.
-const PROVIDER_MAX_CHARS = { openai: 3800, elevenlabs: 4500, groqtts: 2800, deepgramtts: 1800, edgetts: 3000, freetts: 950 };
+// FreeTTS caps the free tier at 1000 chars/request; keep segments modest so
+// the lookahead pipeline hides latency.
+const PROVIDER_MAX_CHARS = { openai: 3800, elevenlabs: 4500, groqtts: 2800, deepgramtts: 1800, freetts: 950 };
 
 const state = {
   status: 'idle',          // idle | loading | playing | paused | done | error

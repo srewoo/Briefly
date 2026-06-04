@@ -117,8 +117,6 @@ async function loadSettings() {
   $('#ttsProvider').value = s.ttsProvider;
   $('#elevenModel').value = s.elevenModelId;
   $('#openaiTtsModel').value = s.openaiTtsModel;
-  if ($('#streamElementsVoice')) $('#streamElementsVoice').value = s.streamElementsVoice;
-  if ($('#edgeTtsVoice')) $('#edgeTtsVoice').value = s.edgeTtsVoice;
   if ($('#freeTtsVoice')) $('#freeTtsVoice').value = s.freeTtsVoice;
   if ($('#gtranslateLang')) $('#gtranslateLang').value = s.gtranslateLang;
   applyTheme(s.theme || 'dark');
@@ -266,8 +264,6 @@ function populateOpenAIVoices(selected) {
 $('#openaiVoice').addEventListener('change', e => Storage.setSettings({ openaiTtsVoice: e.target.value }));
 $('#openaiTtsModel').addEventListener('change', e => Storage.setSettings({ openaiTtsModel: e.target.value }));
 $('#elevenModel').addEventListener('change', e => Storage.setSettings({ elevenModelId: e.target.value }));
-$('#streamElementsVoice').addEventListener('change', e => Storage.setSettings({ streamElementsVoice: e.target.value }));
-if ($('#edgeTtsVoice')) $('#edgeTtsVoice').addEventListener('change', e => Storage.setSettings({ edgeTtsVoice: e.target.value }));
 if ($('#freeTtsVoice')) $('#freeTtsVoice').addEventListener('change', e => Storage.setSettings({ freeTtsVoice: e.target.value }));
 $('#translateTargetLang').addEventListener('change', async e => {
   await Storage.setSettings({ translateTargetLang: e.target.value });
@@ -845,17 +841,9 @@ async function speak(text) {
         voice: $('#openaiVoice').value,
         model: $('#openaiTtsModel').value
       });
-    } else if (provider === 'edgetts') {
-      blob = await TTS.edgetts.synthesize({
-        text, voice: $('#edgeTtsVoice').value || settings.edgeTtsVoice
-      });
     } else if (provider === 'freetts') {
       blob = await TTS.freetts.synthesize({
         text, voice: $('#freeTtsVoice').value || settings.freeTtsVoice
-      });
-    } else if (provider === 'streamelements') {
-      blob = await TTS.streamelements.synthesize({
-        text, voice: $('#streamElementsVoice').value || settings.streamElementsVoice
       });
     } else if (provider === 'gtranslate') {
       blob = await TTS.gtranslate.synthesize({

@@ -109,9 +109,7 @@
         <span>Provider</span>
         <select id="ttsProvider">
           <option value="webspeech">Web Speech API (free)</option>
-          <option value="edgetts">Microsoft Edge TTS (free, neural)</option>
           <option value="freetts">FreeTTS (free, neural)</option>
-          <option value="streamelements">StreamElements (free, no key)</option>
           <option value="gtranslate">Google Translate (free, short text)</option>
           <option value="elevenlabs">ElevenLabs</option>
           <option value="openai">OpenAI TTS</option>
@@ -139,29 +137,6 @@
         </div>
       </div>
 
-      <div data-show-for="edgetts" class="stack">
-        <label class="field">
-          <span>Voice</span>
-          <select id="edgeTtsVoice">
-            <option value="en-US-AriaNeural">Aria (US, female)</option>
-            <option value="en-US-JennyNeural">Jenny (US, female)</option>
-            <option value="en-US-MichelleNeural">Michelle (US, female)</option>
-            <option value="en-US-GuyNeural">Guy (US, male)</option>
-            <option value="en-US-ChristopherNeural">Christopher (US, male)</option>
-            <option value="en-US-EricNeural">Eric (US, male)</option>
-            <option value="en-GB-SoniaNeural">Sonia (UK, female)</option>
-            <option value="en-GB-LibbyNeural">Libby (UK, female)</option>
-            <option value="en-GB-RyanNeural">Ryan (UK, male)</option>
-            <option value="en-AU-NatashaNeural">Natasha (AU, female)</option>
-            <option value="en-AU-WilliamNeural">William (AU, male)</option>
-            <option value="en-IN-NeerjaNeural">Neerja (IN, female)</option>
-            <option value="en-IN-PrabhatNeural">Prabhat (IN, male)</option>
-            <option value="en-CA-ClaraNeural">Clara (CA, female)</option>
-          </select>
-        </label>
-        <p class="muted small">Free neural voices — same as Edge "Read Aloud". No key.</p>
-      </div>
-
       <div data-show-for="freetts" class="stack">
         <label class="field">
           <span>Voice</span>
@@ -176,35 +151,6 @@
           </select>
         </label>
         <p class="muted small">Free neural voices (Azure-backed). No key. ~20 requests/min.</p>
-      </div>
-
-      <div data-show-for="streamelements" class="stack">
-        <label class="field">
-          <span>Voice</span>
-          <select id="streamElementsVoice">
-            <option value="Brian">Brian (en-GB, male)</option>
-            <option value="Amy">Amy (en-GB, female)</option>
-            <option value="Emma">Emma (en-GB, female)</option>
-            <option value="Joey">Joey (en-US, male)</option>
-            <option value="Justin">Justin (en-US, male)</option>
-            <option value="Matthew">Matthew (en-US, male)</option>
-            <option value="Joanna">Joanna (en-US, female)</option>
-            <option value="Ivy">Ivy (en-US, female)</option>
-            <option value="Salli">Salli (en-US, female)</option>
-            <option value="Kendra">Kendra (en-US, female)</option>
-            <option value="Kimberly">Kimberly (en-US, female)</option>
-            <option value="Nicole">Nicole (en-AU, female)</option>
-            <option value="Russell">Russell (en-AU, male)</option>
-            <option value="Raveena">Raveena (en-IN, female)</option>
-            <option value="Aditi">Aditi (hi-IN, female)</option>
-            <option value="Mizuki">Mizuki (ja-JP, female)</option>
-            <option value="Takumi">Takumi (ja-JP, male)</option>
-            <option value="Celine">Celine (fr-FR, female)</option>
-            <option value="Marlene">Marlene (de-DE, female)</option>
-            <option value="Conchita">Conchita (es-ES, female)</option>
-          </select>
-        </label>
-        <p class="muted small">Free Polly-backed voices. No key needed.</p>
       </div>
 
       <div data-show-for="gtranslate" class="stack">
@@ -324,7 +270,6 @@
         <span>Voice provider</span>
         <select id="listenProvider">
           <option value="webspeech">Web Speech API (free)</option>
-          <option value="edgetts">Microsoft Edge TTS (free, neural)</option>
           <option value="freetts">FreeTTS (free, neural)</option>
           <option value="groqtts">Groq TTS (free tier)</option>
           <option value="deepgramtts">Deepgram Aura ($200 free credit)</option>

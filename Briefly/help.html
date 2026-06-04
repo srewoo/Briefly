@@ -92,7 +92,7 @@
     <li>Click the Briefly icon in the toolbar to open the side panel (or press <kbd>⌘⇧P</kbd> / <kbd>Ctrl+Shift+P</kbd>).</li>
     <li>Pick a <strong>Speech → Text</strong> provider. <strong>Web Speech API</strong> works with no key.</li>
     <li>Hit <strong>🎙 Start recording</strong>, speak, then <strong>⏹ Stop</strong> — or wait for auto-stop on silence.</li>
-    <li>For <strong>Text → Speech</strong>, paste text and pick a voice. <strong>StreamElements</strong> and <strong>Google Translate</strong> work with no key.</li>
+    <li>For <strong>Text → Speech</strong>, paste text and pick a voice. <strong>Web Speech</strong>, <strong>FreeTTS</strong>, and <strong>Google Translate</strong> work with no key.</li>
   </ol>
 
   <h2>Keyboard shortcuts</h2>
@@ -117,6 +117,7 @@
       <tr><td>Groq Whisper</td><td>✅ free tier</td><td>—</td><td>Very fast batch (<code>whisper-large-v3-turbo</code>).</td></tr>
       <tr><td>Deepgram</td><td>🆓 free credits</td><td>✅ WebSocket</td><td><code>nova-3</code>.</td></tr>
       <tr><td>AssemblyAI</td><td>🆓 free credits</td><td>✅ Universal v3</td><td>Short-lived token-exchanged WS.</td></tr>
+      <tr><td>Speechmatics</td><td>🆓 free tier</td><td>—</td><td>Batch jobs, strong accent / multilingual accuracy.</td></tr>
       <tr><td>OpenAI Whisper</td><td>Paid</td><td>—</td><td><code>whisper-1</code>.</td></tr>
     </tbody>
   </table>
@@ -127,9 +128,11 @@
       <tr><th>Provider</th><th>Free?</th><th>Voices</th></tr>
     </thead>
     <tbody>
-      <tr><td>Web Speech API</td><td>✅ no key</td><td>OS voices with rate / pitch / volume sliders</td></tr>
-      <tr><td>StreamElements</td><td>✅ no key</td><td>20+ Polly-backed voices, multiple accents and languages</td></tr>
+      <tr><td>Web Speech API</td><td>✅ no key</td><td>OS voices with rate / pitch / volume sliders (install Premium OS voices for neural quality)</td></tr>
+      <tr><td>FreeTTS</td><td>✅ no key</td><td>Azure-backed neural voices; ~1,000 chars/hr free, best for short text</td></tr>
       <tr><td>Google Translate TTS</td><td>✅ no key</td><td>1 voice per language, best for short text</td></tr>
+      <tr><td>Groq TTS</td><td>✅ free tier</td><td>PlayAI / Orpheus neural voices (one-time terms acceptance)</td></tr>
+      <tr><td>Deepgram Aura</td><td>🆓 free credits</td><td>Aura-2 neural voices; best free-credit option for long content</td></tr>
       <tr><td>ElevenLabs</td><td>Paid</td><td>Premium AI voices with stability + similarity controls</td></tr>
       <tr><td>OpenAI TTS</td><td>Paid</td><td><code>alloy</code>, <code>echo</code>, <code>fable</code>, <code>onyx</code>, <code>nova</code>, <code>shimmer</code></td></tr>
     </tbody>

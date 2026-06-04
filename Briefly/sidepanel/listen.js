@@ -132,12 +132,8 @@ async function buildOptions(provider) {
   switch (provider) {
     case 'webspeech':
       return { options: { voiceURI: settings.ttsVoiceURI }, voiceSig: `ws:${settings.ttsVoiceURI}` };
-    case 'edgetts':
-      return { options: { voice: settings.edgeTtsVoice }, voiceSig: `edge:${settings.edgeTtsVoice}` };
     case 'freetts':
       return { options: { voice: settings.freeTtsVoice }, voiceSig: `free:${settings.freeTtsVoice}` };
-    // StreamElements deliberately excluded: its free endpoint throttles with
-    // intermittent 401s — fine for one snippet, fatal for a 70-paragraph read.
     case 'groqtts':
       if (!keys.groqKey) throw new Error('Add a Groq API key in Settings first (free at console.groq.com).');
       return {
@@ -182,9 +178,6 @@ function buildHostVoices(provider, hostA) {
   if (provider === 'openai') {
     b.voice = a.voice === 'nova' ? 'onyx' : 'nova';
     sigB = `oa:${b.model}:${b.voice}`;
-  } else if (provider === 'edgetts') {
-    b.voice = a.voice?.includes('Guy') || a.voice?.includes('Ryan') ? 'en-US-AriaNeural' : 'en-US-GuyNeural';
-    sigB = `edge:${b.voice}`;
   } else if (provider === 'freetts') {
     b.voice = a.voice?.includes('Guy') || a.voice?.includes('Ryan') ? 'en-US-JennyNeural' : 'en-US-GuyNeural';
     sigB = `free:${b.voice}`;

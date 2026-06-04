@@ -134,79 +134,6 @@ export async function translateText({ text, targetLang, groqKey, openaiKey }) {
   return (j?.choices?.[0]?.message?.content || '').trim();
 }
 
-// ─── Microsoft Edge "Read Aloud" TTS (free, no key) ────────────────
-// Same neural voices as Edge's Read Aloud. Phonemization is server-side, so
-// it sidesteps the WASM/worker limits of in-browser models. Auth is a
-// clock-derived Sec-MS-GEC token (no account needed).
-const EDGE_TRUSTED_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
-const EDGE_GEC_VERSION = '1-130.0.2849.68';
-
-export const EDGE_VOICES = [
-  'en-US-AriaNeural', 'en-US-JennyNeural', 'en-US-GuyNeural', 'en-US-MichelleNeural',
-  'en-US-ChristopherNeural', 'en-US-EricNeural', 'en-US-RogerNeural',
-  'en-GB-SoniaNeural', 'en-GB-RyanNeural', 'en-GB-LibbyNeural',
-  'en-AU-NatashaNeural', 'en-AU-WilliamNeural',
-  'en-IN-NeerjaNeural', 'en-IN-PrabhatNeural', 'en-CA-ClaraNeural'
-];
-
-async function edgeGecToken() {
-  // Windows file time (100ns ticks since 1601), rounded down to 5 minutes.
-  let ticks = (BigInt(Math.floor(Date.now() / 1000)) + 11644473600n) * 10000000n;
-  ticks -= ticks % 3000000000n;
-  const data = new TextEncoder().encode(`${ticks}${EDGE_TRUSTED_TOKEN}`);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-}
-
-function xmlEscape(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-}
-
-async function edgeSynthesize({ text, voice, rate = '+0%', pitch = '+0Hz' }) {
-  if (!text || !text.trim()) throw new Error('Text is empty.');
-  const token = await edgeGecToken();
-  const url = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1`
-    + `?TrustedClientToken=${EDGE_TRUSTED_TOKEN}&Sec-MS-GEC=${token}&Sec-MS-GEC-Version=${EDGE_GEC_VERSION}`;
-  const reqId = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/-/g, '');
-  const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>`
-    + `<voice name='${voice || 'en-US-AriaNeural'}'>`
-    + `<prosody rate='${rate}' pitch='${pitch}'>${xmlEscape(text)}</prosody></voice></speak>`;
-
-  return new Promise((resolve, reject) => {
-    let ws;
-    try { ws = new WebSocket(url); } catch (e) { return reject(new Error(`Edge TTS: ${e.message}`)); }
-    ws.binaryType = 'arraybuffer';
-    const chunks = [];
-    const timer = setTimeout(() => { try { ws.close(); } catch (_) {} reject(new Error('Edge TTS timed out.')); }, 30000);
-
-    ws.onopen = () => {
-      const ts = new Date().toString();
-      ws.send(`X-Timestamp:${ts}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n`
-        + `{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`);
-      ws.send(`X-RequestId:${reqId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}\r\nPath:ssml\r\n\r\n${ssml}`);
-    };
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === 'string') {
-        if (ev.data.includes('Path:turn.end')) {
-          clearTimeout(timer);
-          try { ws.close(); } catch (_) {}
-          if (!chunks.length) return reject(new Error('Edge TTS returned no audio.'));
-          resolve(new Blob(chunks, { type: 'audio/mpeg' }));
-        }
-      } else {
-        const buf = ev.data; // ArrayBuffer
-        const dv = new DataView(buf);
-        const headerLen = dv.getUint16(0);
-        const header = new TextDecoder().decode(buf.slice(2, 2 + headerLen));
-        if (header.includes('Path:audio')) chunks.push(buf.slice(2 + headerLen));
-      }
-    };
-    ws.onerror = () => { clearTimeout(timer); reject(new Error('Edge TTS connection failed.')); };
-    ws.onclose = (e) => { if (!chunks.length && e.code !== 1000) { clearTimeout(timer); reject(new Error(`Edge TTS closed (${e.code}).`)); } };
-  });
-}
-
 // ─── STT ───────────────────────────────────────────────────────────
 
 export const STT = {
@@ -425,43 +352,6 @@ export const TTS = {
     name: 'Web Speech API (free, browser)',
     needsKey: false,
     inProcess: true
-  },
-  streamelements: {
-    name: 'StreamElements (free, no key)',
-    needsKey: false,
-    async synthesize({ text, voice = 'Brian' }) {
-      if (!text || !text.trim()) throw new Error('Text is empty.');
-      // StreamElements caps each request around ~500 chars; chunk safely.
-      const chunks = chunkText(text, 480);
-      const blobs = [];
-      for (const chunk of chunks) {
-        const url = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(chunk)}`;
-        // The free endpoint throttles with intermittent 401s (no auth is
-        // actually required), so a 401 here means "try again", not "bad key".
-        let res, lastStatus = 0;
-        for (let attempt = 0; attempt < 4; attempt++) {
-          res = await rfetch(url, { method: 'GET' }, { label: 'StreamElements TTS', retries: 0 });
-          if (res.ok) break;
-          lastStatus = res.status;
-          if (res.status !== 401) break; // real error → stop
-          await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
-        }
-        if (!res.ok) {
-          const t = await res.text();
-          const hint = lastStatus === 401 ? ' (free endpoint is throttling — try Web Speech for reliable free TTS)' : '';
-          throw new Error(`StreamElements TTS failed: ${res.status}${hint} ${t}`);
-        }
-        blobs.push(await res.blob());
-      }
-      return new Blob(blobs, { type: 'audio/mpeg' });
-    }
-  },
-  edgetts: {
-    name: 'Microsoft Edge TTS (free, neural)',
-    needsKey: false,
-    async synthesize({ text, voice, rate, pitch }) {
-      return edgeSynthesize({ text, voice, rate, pitch });
-    }
   },
   freetts: {
     name: 'FreeTTS (free, neural)',
