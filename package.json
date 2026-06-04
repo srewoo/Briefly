@@ -1,6 +1,6 @@
 {
   "name": "briefly-extension",
-  "version": "2.2",
+  "version": "3.0",
   "private": true,
   "description": "Briefly — minimal STT/TTS Chrome extension with pluggable providers (Web Speech, AssemblyAI, ElevenLabs, OpenAI).",
   "scripts": {
