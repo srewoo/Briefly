@@ -31,6 +31,16 @@ dist/
 build/
 coverage/
 
+# …but keep the Kokoro build tooling (not its node_modules) so the
+# vendored bundle in Briefly/lib/vendor/ is reproducible.
+!build/
+!build/kokoro/
+!build/kokoro/src/
+!build/kokoro/*.mjs
+!build/kokoro/package.json
+build/kokoro/node_modules/
+build/kokoro/package-lock.json
+
 # Chrome extension build artifacts (if added later)
 Briefly/*.zip
 Briefly/dist/

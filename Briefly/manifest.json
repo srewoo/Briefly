@@ -55,7 +55,10 @@
     "https://api.deepgram.com/*",
     "https://api.groq.com/*",
     "https://api.streamelements.com/*",
-    "https://translate.google.com/*"
+    "https://translate.google.com/*",
+    "https://huggingface.co/*",
+    "https://*.huggingface.co/*",
+    "https://*.hf.co/*"
   ],
   "web_accessible_resources": [
     {
@@ -69,6 +72,6 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   }
 }

@@ -21,6 +21,9 @@ const DEFAULTS = {
   deepgramTtsModel: 'aura-2-thalia-en',
   // Groq TTS (Orpheus voices: hannah, troy, austin)
   groqTtsVoice: 'hannah',
+  // Kokoro (on-device). dtype q8 ≈ 80MB download, fp32 ≈ 330MB (higher quality)
+  kokoroVoice: 'af_heart',
+  kokoroDtype: 'q8',
   // StreamElements
   streamElementsVoice: 'Brian',
   // Google Translate TTS

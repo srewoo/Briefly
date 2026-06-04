@@ -4,6 +4,7 @@
   "private": true,
   "description": "Briefly — minimal STT/TTS Chrome extension with pluggable providers (Web Speech, AssemblyAI, ElevenLabs, OpenAI).",
   "scripts": {
+    "build:kokoro": "cd build/kokoro && npm install --no-audit --no-fund && node build.mjs",
     "build": "rm -rf dist && mkdir -p dist && cd Briefly && zip -r ../dist/briefly.zip ."
   },
   "keywords": [
