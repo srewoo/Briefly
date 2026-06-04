@@ -220,17 +220,70 @@ $('#ttsProvider').addEventListener('change', async e => {
 });
 
 // ─── Web Speech voices ───────────────────────────────────
+// Heuristic quality score for a Web Speech voice. The browser's "default" is
+// often the worst available, so we rank explicitly and surface the good ones.
+const HQ_RE = /premium|enhanced|neural|natural|siri|\bgoogle\b/i;
+const LQ_RE = /compact|eloquence|albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|junior|kathy|fred|ralph/i;
+
+function voiceScore(v) {
+  let s = 0;
+  if (HQ_RE.test(v.name)) s += 100;          // neural / premium / Google network
+  if (/online|natural/i.test(v.name)) s += 40;
+  if (LQ_RE.test(v.name)) s -= 100;          // novelty / compact / robotic
+  if (!v.localService) s += 10;              // network voices tend to be better
+  if (/^en[-_]/i.test(v.lang)) s += 5;       // bias English first for this UI
+  return s;
+}
+function isHQ(v) { return HQ_RE.test(v.name) && !LQ_RE.test(v.name); }
+
 function populateWebSpeechVoices() {
-  const voices = speechSynthesis.getVoices();
   const sel = $('#webspeechVoice');
+  if (!sel) return;
+  const uiLang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+  const voices = speechSynthesis.getVoices().slice().sort((a, b) => {
+    // current UI language first, then by quality score, then name
+    const la = a.lang.toLowerCase().startsWith(uiLang) ? 1 : 0;
+    const lb = b.lang.toLowerCase().startsWith(uiLang) ? 1 : 0;
+    if (la !== lb) return lb - la;
+    const d = voiceScore(b) - voiceScore(a);
+    return d !== 0 ? d : a.name.localeCompare(b.name);
+  });
+  if (!voices.length) return; // fires again on voiceschanged
+
   sel.innerHTML = '';
-  voices.forEach(v => {
+  const mkOpt = (v) => {
     const o = document.createElement('option');
     o.value = v.voiceURI;
-    o.textContent = `${v.name} (${v.lang})${v.default ? ' — default' : ''}`;
-    sel.appendChild(o);
+    o.textContent = `${isHQ(v) ? '⭐ ' : ''}${v.name} (${v.lang})`;
+    return o;
+  };
+  const hq = voices.filter(isHQ);
+  const rest = voices.filter(v => !isHQ(v));
+  if (hq.length) {
+    const g = document.createElement('optgroup'); g.label = 'Higher quality';
+    hq.forEach(v => g.appendChild(mkOpt(v))); sel.appendChild(g);
+  }
+  const g2 = document.createElement('optgroup'); g2.label = hq.length ? 'Other voices' : 'Voices';
+  rest.forEach(v => g2.appendChild(mkOpt(v))); sel.appendChild(g2);
+
+  // Restore saved choice, else default to the best-ranked voice and persist it.
+  Storage.getSettings().then(s => {
+    if (s.ttsVoiceURI && voices.some(v => v.voiceURI === s.ttsVoiceURI)) {
+      sel.value = s.ttsVoiceURI;
+    } else {
+      const best = voices[0];
+      if (best) { sel.value = best.voiceURI; Storage.setSettings({ ttsVoiceURI: best.voiceURI }); }
+    }
   });
-  Storage.getSettings().then(s => { if (s.ttsVoiceURI) sel.value = s.ttsVoiceURI; });
+
+  // One-time hint: point to OS settings for installing neural voices.
+  const hint = $('#webspeechHint');
+  if (hint && !hint.textContent) {
+    const mac = /Mac/i.test(navigator.platform || navigator.userAgent);
+    hint.textContent = mac
+      ? 'Tip: install neural voices in System Settings → Accessibility → Spoken Content → System Voice → Manage Voices (English → look for "Premium"). They appear here ⭐ and run free & offline.'
+      : 'Tip: install neural "Natural" voices in Windows Settings → Time & Language → Speech → Manage voices. They appear here ⭐ and run free & offline.';
+  }
 }
 speechSynthesis.onvoiceschanged = populateWebSpeechVoices;
 populateWebSpeechVoices();
