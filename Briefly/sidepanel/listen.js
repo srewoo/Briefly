@@ -118,12 +118,6 @@ async function updateCost() {
     podcast: minutes * SPOKEN_CHARS_PER_MIN
   }[mode] || fullChars;
 
-  if (provider === 'kokoro') {
-    const keys2 = await Storage.getKeys();
-    const llm = mode === 'read' ? '' : (llmCostNote(keys2) || ' + free LLM (Groq)');
-    el.textContent = `Est. cost: free, on-device${llm} · first run downloads ~80MB (cached)`;
-    return;
-  }
   const rate = COST_PER_CHAR[provider];
   const ttsPart = rate ? `~$${Math.max(0.01, ttsChars * rate).toFixed(2)} TTS` : 'free TTS';
   const keys = await Storage.getKeys();
@@ -138,12 +132,10 @@ async function buildOptions(provider) {
   switch (provider) {
     case 'webspeech':
       return { options: { voiceURI: settings.ttsVoiceURI }, voiceSig: `ws:${settings.ttsVoiceURI}` };
-    case 'kokoro':
-      // On-device, no key. First use downloads ~80MB (cached forever).
-      return {
-        options: { voice: settings.kokoroVoice, dtype: settings.kokoroDtype },
-        voiceSig: `kk:${settings.kokoroDtype}:${settings.kokoroVoice}`
-      };
+    case 'edgetts':
+      return { options: { voice: settings.edgeTtsVoice }, voiceSig: `edge:${settings.edgeTtsVoice}` };
+    case 'freetts':
+      return { options: { voice: settings.freeTtsVoice }, voiceSig: `free:${settings.freeTtsVoice}` };
     // StreamElements deliberately excluded: its free endpoint throttles with
     // intermittent 401s — fine for one snippet, fatal for a 70-paragraph read.
     case 'groqtts':
@@ -190,10 +182,12 @@ function buildHostVoices(provider, hostA) {
   if (provider === 'openai') {
     b.voice = a.voice === 'nova' ? 'onyx' : 'nova';
     sigB = `oa:${b.model}:${b.voice}`;
-  } else if (provider === 'kokoro') {
-    // Pair a female (A) with a male (B) voice by default.
-    b.voice = a.voice?.startsWith('am_') || a.voice?.startsWith('bm_') ? 'af_heart' : 'am_adam';
-    sigB = `kk:${b.dtype}:${b.voice}`;
+  } else if (provider === 'edgetts') {
+    b.voice = a.voice?.includes('Guy') || a.voice?.includes('Ryan') ? 'en-US-AriaNeural' : 'en-US-GuyNeural';
+    sigB = `edge:${b.voice}`;
+  } else if (provider === 'freetts') {
+    b.voice = a.voice?.includes('Guy') || a.voice?.includes('Ryan') ? 'en-US-JennyNeural' : 'en-US-GuyNeural';
+    sigB = `free:${b.voice}`;
   } else if (provider === 'groqtts') {
     b.voice = a.voice === 'troy' ? 'hannah' : 'troy';
     sigB = `gq:orpheus:${b.voice}`;

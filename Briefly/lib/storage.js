@@ -21,11 +21,11 @@ const DEFAULTS = {
   deepgramTtsModel: 'aura-2-thalia-en',
   // Groq TTS (Orpheus voices: hannah, troy, austin)
   groqTtsVoice: 'hannah',
-  // Kokoro (on-device). dtype q8 ≈ 80MB download, fp32 ≈ 330MB (higher quality)
-  kokoroVoice: 'af_heart',
-  kokoroDtype: 'q8',
   // StreamElements
   streamElementsVoice: 'Brian',
+  // Microsoft Edge TTS (free neural) + FreeTTS (free neural) — MS voice names
+  edgeTtsVoice: 'en-US-AriaNeural',
+  freeTtsVoice: 'en-US-JennyNeural',
   // Google Translate TTS
   gtranslateLang: 'en',
   // UI
@@ -47,7 +47,8 @@ const KEY_FIELDS = [
   'elevenlabsKey',
   'openaiKey',
   'deepgramKey',
-  'groqKey'
+  'groqKey',
+  'speechmaticsKey'
 ];
 
 export const Storage = {

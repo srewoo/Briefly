@@ -5,14 +5,13 @@
 // Lives in the offscreen doc so playback survives the side panel closing.
 import { TTS, chunkText } from '../lib/providers.js';
 import { cacheKey, cacheGet, cachePut } from '../lib/audio-cache.js';
-import { kokoroSynthesize } from './kokoro-runner.js';
 
 const LOOKAHEAD = 2;
 // Per-request input caps: Deepgram /speak rejects >2000 chars; Groq PlayAI
 // caps around 10k but long inputs degrade — keep requests modest.
-// Kokoro runs locally per-segment; keep chunks small so inference stays snappy
-// and the lookahead pipeline hides latency.
-const PROVIDER_MAX_CHARS = { openai: 3800, elevenlabs: 4500, groqtts: 2800, deepgramtts: 1800, kokoro: 500 };
+// FreeTTS caps the free tier at 1000 chars/request; Edge is generous but keep
+// segments modest so the lookahead pipeline hides latency.
+const PROVIDER_MAX_CHARS = { openai: 3800, elevenlabs: 4500, groqtts: 2800, deepgramtts: 1800, edgetts: 3000, freetts: 950 };
 
 const state = {
   status: 'idle',          // idle | loading | playing | paused | done | error
@@ -63,9 +62,7 @@ async function synthesizeSegment(idx) {
       const pieces = max && text.length > max ? chunkText(text, max) : [text];
       const blobs = [];
       for (const piece of pieces) {
-        blobs.push(cfg.provider === 'kokoro'
-          ? await kokoroSynthesize({ text: piece, voice: opts.voice, dtype: opts.dtype })
-          : await TTS[cfg.provider].synthesize({ text: piece, ...opts }));
+        blobs.push(await TTS[cfg.provider].synthesize({ text: piece, ...opts }));
       }
       blob = blobs.length === 1 ? blobs[0] : new Blob(blobs, { type: blobs[0].type || 'audio/mpeg' });
       cachePut(key, blob); // fire-and-forget
@@ -220,9 +217,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         hostVoices: msg.hostVoices || null,
         voiceSigs: msg.voiceSigs || null
       };
-      // MP3 providers concat cleanly; webspeech has no data, kokoro emits WAV
-      // (multi-segment WAV concat is invalid) — both excluded from export.
-      state.canExport = !['webspeech', 'kokoro'].includes(msg.provider);
+      state.canExport = msg.provider !== 'webspeech';
       blobCache = new Map();
       state.title = msg.title || '';
       state.queueComplete = !msg.streaming;
