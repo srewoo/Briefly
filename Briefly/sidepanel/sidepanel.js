@@ -1,5 +1,9 @@
 import { Storage } from '../lib/storage.js';
 import { STT, TTS, OPENAI_TTS_VOICES, TRANSLATE_LANGS, translateText } from '../lib/providers.js';
+import { webSpeechLang } from '../lib/lang.js';
+import { applyI18n, t } from '../lib/i18n.js';
+import { rankVoices, isHQ } from '../lib/voice-rank.js';
+import { createWaveform } from './waveform.js';
 
 const $ = sel => document.querySelector(sel);
 const $$ = sel => document.querySelectorAll(sel);
@@ -59,11 +63,16 @@ $('#privacyFooterLink').addEventListener('click', e => { e.preventDefault(); ope
 $('#helpFooterLink').addEventListener('click', e => { e.preventDefault(); openExtPage('help.html'); });
 
 // ─── Push-to-talk from keyboard shortcut ─────────────────
+function activateSttTab() {
+  // Ensure STT tab is active so the user sees the transcript fill in.
+  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'stt'));
+  $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === 'stt'));
+}
 chrome.runtime.onMessage.addListener((msg) => {
+  // In-panel manual toggle hook (the headless Dictate shortcut uses the on-page
+  // pill instead and never messages the panel).
   if (msg && msg.type === 'TOGGLE_RECORD') {
-    // Ensure STT tab is active so the user sees what's happening
-    $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'stt'));
-    $$('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === 'stt'));
+    activateSttTab();
     if (recording) stopRecording(); else startRecording();
   }
 });
@@ -117,7 +126,6 @@ async function loadSettings() {
   $('#ttsProvider').value = s.ttsProvider;
   $('#elevenModel').value = s.elevenModelId;
   $('#openaiTtsModel').value = s.openaiTtsModel;
-  if ($('#freeTtsVoice')) $('#freeTtsVoice').value = s.freeTtsVoice;
   if ($('#gtranslateLang')) $('#gtranslateLang').value = s.gtranslateLang;
   applyTheme(s.theme || 'dark');
   $('#ttsRate').value = s.ttsRate;       $('#ttsRateVal').textContent = s.ttsRate;
@@ -126,6 +134,8 @@ async function loadSettings() {
   $('#elevenStability').value = s.elevenStability;   $('#elevenStabilityVal').textContent = (+s.elevenStability).toFixed(2);
   $('#elevenSimilarity').value = s.elevenSimilarity; $('#elevenSimilarityVal').textContent = (+s.elevenSimilarity).toFixed(2);
   $('#autoCopyTranscript').checked = !!s.autoCopyTranscript;
+  if ($('#dictateAiCleanup')) $('#dictateAiCleanup').checked = !!s.dictateAiCleanup;
+  if ($('#dictateVocabulary')) $('#dictateVocabulary').value = s.dictateVocabulary || '';
   for (const f of ['assemblyaiKey', 'elevenlabsKey', 'openaiKey', 'groqKey', 'deepgramKey', 'speechmaticsKey']) {
     if ($(`#${f}`)) $(`#${f}`).value = k[f];
   }
@@ -148,7 +158,9 @@ $('#saveSettings').addEventListener('click', async () => {
   });
   await Storage.setSettings({
     autoCopyTranscript: $('#autoCopyTranscript').checked,
-    translateTargetLang: $('#translateTargetLang').value
+    translateTargetLang: $('#translateTargetLang').value,
+    dictateAiCleanup: $('#dictateAiCleanup').checked,
+    dictateVocabulary: $('#dictateVocabulary').value.trim()
   });
   updateTranslateButtonLabel($('#translateTargetLang').value);
   toast('Settings saved.', 'ok');
@@ -186,11 +198,42 @@ $$('[data-test]').forEach(btn => {
   });
 });
 
+// Ensure Chrome's on-device speech model for `lang` is installed. The API is
+// bleeding-edge (SpeechRecognition.available / .install); everything here is
+// feature-detected and never throws — if unsupported we let recognition run
+// with processLocally requested and surface a clear error only when it truly
+// can't proceed.
+async function ensureOnDeviceModel(SR, lang) {
+  try {
+    if (typeof SR.available !== 'function') {
+      // No on-device API in this browser — allow the attempt (may run online).
+      return { ok: true };
+    }
+    const status = await SR.available({ langs: [lang], processLocally: true });
+    if (status === 'available') return { ok: true };
+    if (status === 'unavailable') {
+      return { ok: false, message: `On-device speech is not available for ${lang} in this browser.` };
+    }
+    // 'downloadable' / 'downloading' — trigger a one-time model download.
+    setMsg('#sttStatus', 'Downloading on-device speech model (one-time)…');
+    if (typeof SR.install === 'function') {
+      const ok = await SR.install({ langs: [lang], processLocally: true }).catch(() => false);
+      if (!ok) return { ok: false, message: 'On-device model download was declined or failed.' };
+    }
+    return { ok: true };
+  } catch (_) {
+    return { ok: true }; // best-effort: let the recognition attempt proceed
+  }
+}
+
 // ─── Provider visibility ─────────────────────────────────
 function updateSttVisibility() {
   const provider = $('#sttProvider').value;
-  $('#sttLangField').style.display = provider === 'webspeech' ? '' : 'none';
-  $('#silenceField').style.display = provider === 'webspeech' ? 'none' : '';
+  const isLocal = provider === 'webspeech' || provider === 'webspeech_local';
+  // Language (incl. Auto-detect) is relevant to every provider; only the
+  // silence auto-stop is meaningless for the in-browser Web Speech engines.
+  $('#sttLangField').style.display = '';
+  $('#silenceField').style.display = isLocal ? 'none' : '';
   const canStream = provider === 'deepgram' || provider === 'assemblyai';
   $('#liveStreamField').hidden = !canStream;
   if (canStream) {
@@ -220,34 +263,11 @@ $('#ttsProvider').addEventListener('change', async e => {
 });
 
 // ─── Web Speech voices ───────────────────────────────────
-// Heuristic quality score for a Web Speech voice. The browser's "default" is
-// often the worst available, so we rank explicitly and surface the good ones.
-const HQ_RE = /premium|enhanced|neural|natural|siri|\bgoogle\b/i;
-const LQ_RE = /compact|eloquence|albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|junior|kathy|fred|ralph/i;
-
-function voiceScore(v) {
-  let s = 0;
-  if (HQ_RE.test(v.name)) s += 100;          // neural / premium / Google network
-  if (/online|natural/i.test(v.name)) s += 40;
-  if (LQ_RE.test(v.name)) s -= 100;          // novelty / compact / robotic
-  if (!v.localService) s += 10;              // network voices tend to be better
-  if (/^en[-_]/i.test(v.lang)) s += 5;       // bias English first for this UI
-  return s;
-}
-function isHQ(v) { return HQ_RE.test(v.name) && !LQ_RE.test(v.name); }
-
+// Voice quality ranking lives in lib/voice-rank.js (unit-tested).
 function populateWebSpeechVoices() {
   const sel = $('#webspeechVoice');
   if (!sel) return;
-  const uiLang = (navigator.language || 'en').slice(0, 2).toLowerCase();
-  const voices = speechSynthesis.getVoices().slice().sort((a, b) => {
-    // current UI language first, then by quality score, then name
-    const la = a.lang.toLowerCase().startsWith(uiLang) ? 1 : 0;
-    const lb = b.lang.toLowerCase().startsWith(uiLang) ? 1 : 0;
-    if (la !== lb) return lb - la;
-    const d = voiceScore(b) - voiceScore(a);
-    return d !== 0 ? d : a.name.localeCompare(b.name);
-  });
+  const voices = rankVoices(speechSynthesis.getVoices(), navigator.language);
   if (!voices.length) return; // fires again on voiceschanged
 
   sel.innerHTML = '';
@@ -317,7 +337,6 @@ function populateOpenAIVoices(selected) {
 $('#openaiVoice').addEventListener('change', e => Storage.setSettings({ openaiTtsVoice: e.target.value }));
 $('#openaiTtsModel').addEventListener('change', e => Storage.setSettings({ openaiTtsModel: e.target.value }));
 $('#elevenModel').addEventListener('change', e => Storage.setSettings({ elevenModelId: e.target.value }));
-if ($('#freeTtsVoice')) $('#freeTtsVoice').addEventListener('change', e => Storage.setSettings({ freeTtsVoice: e.target.value }));
 $('#translateTargetLang').addEventListener('change', async e => {
   await Storage.setSettings({ translateTargetLang: e.target.value });
   updateTranslateButtonLabel(e.target.value);
@@ -360,62 +379,49 @@ function updateCharCount() {
 $('#ttsText').addEventListener('input', updateCharCount);
 
 // ─── Waveform canvas ─────────────────────────────────────
-const canvas = $('#waveform');
-const ctx = canvas.getContext('2d');
-function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = canvas.clientWidth * dpr;
-  canvas.height = canvas.clientHeight * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-window.addEventListener('resize', resizeCanvas);
-setTimeout(resizeCanvas, 0);
+// Rendering lives in ./waveform.js.
+const waveform = createWaveform($('#waveform'));
+const drawBars = (bars) => waveform.drawBars(bars);
 
-function themeColor(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+// The Web Speech provider runs recognition in this page with no offscreen
+// document — so nothing feeds WAVEFORM_DATA. Drive the waveform locally from
+// our own analyser while Web Speech is listening (best-effort; visual only).
+let localWaveStream = null;
+let localWaveCtx = null;
+let localWaveTimer = null;
+
+async function startLocalWaveform() {
+  stopLocalWaveform();
+  try {
+    localWaveStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    localWaveCtx = new AudioContext();
+    if (localWaveCtx.state === 'suspended') { try { await localWaveCtx.resume(); } catch (_) {} }
+    const src = localWaveCtx.createMediaStreamSource(localWaveStream);
+    const analyser = localWaveCtx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.7;
+    src.connect(analyser);
+    const fft = new Uint8Array(analyser.frequencyBinCount);
+    const BARS = 48;
+    const stride = Math.max(1, Math.floor(analyser.frequencyBinCount / BARS));
+    localWaveTimer = setInterval(() => {
+      if (!recording) return;
+      analyser.getByteFrequencyData(fft);
+      const data = new Array(BARS);
+      for (let i = 0; i < BARS; i++) {
+        let sum = 0;
+        for (let j = 0; j < stride; j++) sum += fft[i * stride + j] || 0;
+        data[i] = Math.round(sum / stride);
+      }
+      drawBars(data);
+    }, 33);
+  } catch (_) { /* visualization is best-effort — ignore failures */ }
 }
 
-function drawIdle() {
-  const W = canvas.clientWidth, H = canvas.clientHeight;
-  ctx.clearRect(0, 0, W, H);
-  ctx.strokeStyle = themeColor('--border') || '#2a3140';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
-}
-drawIdle();
-
-// Smooth previous frame towards the new sample so bars animate fluidly
-let smoothedBars = null;
-function drawBars(bars) {
-  const W = canvas.clientWidth, H = canvas.clientHeight;
-  ctx.clearRect(0, 0, W, H);
-  if (!smoothedBars || smoothedBars.length !== bars.length) {
-    smoothedBars = new Float32Array(bars.length);
-  }
-  const accent = themeColor('--accent') || '#4f7cff';
-  const accentSoft = themeColor('--accent-hover') || accent;
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, accentSoft);
-  grad.addColorStop(1, accent);
-  ctx.fillStyle = grad;
-  const barW = W / bars.length;
-  const minH = 2;
-  for (let i = 0; i < bars.length; i++) {
-    smoothedBars[i] = smoothedBars[i] * 0.55 + bars[i] * 0.45;
-    const h = Math.max(minH, (smoothedBars[i] / 255) * H * 0.95);
-    const x = i * barW + 1;
-    const y = (H - h) / 2;
-    const w = barW - 2;
-    const r = Math.min(w / 2, 2);
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y,       x + w, y + h, r);
-    ctx.arcTo(x + w, y + h,   x,     y + h, r);
-    ctx.arcTo(x,     y + h,   x,     y,     r);
-    ctx.arcTo(x,     y,       x + w, y,     r);
-    ctx.closePath();
-    ctx.fill();
-  }
+function stopLocalWaveform() {
+  if (localWaveTimer) { clearInterval(localWaveTimer); localWaveTimer = null; }
+  if (localWaveCtx) { localWaveCtx.close().catch(() => {}); localWaveCtx = null; }
+  if (localWaveStream) { localWaveStream.getTracks().forEach(t => t.stop()); localWaveStream = null; }
 }
 
 // ─── Mic permission warm-up ──────────────────────────────
@@ -447,8 +453,10 @@ function setRecording(on) {
   recording = on;
   const btn = $('#recordBtn');
   btn.classList.toggle('recording', on);
-  btn.textContent = on ? '⏹ Stop recording' : '🎙 Start recording';
-  if (!on) { smoothedBars = null; drawIdle(); }
+  btn.textContent = on
+    ? (t('btnRecordStop') || '⏹ Stop recording')
+    : (t('btnRecordStart') || '🎙 Start recording');
+  if (!on) waveform.reset();
 }
 
 // Live streaming state
@@ -496,7 +504,8 @@ async function startRecording() {
   setMsg('#sttStatus', 'Requesting microphone…');
   setRecording(true);
 
-  if (provider === 'webspeech') {
+  if (provider === 'webspeech' || provider === 'webspeech_local') {
+    const onDevice = provider === 'webspeech_local';
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       setMsg('#sttStatus', 'Web Speech API not available in this browser.', 'error');
@@ -510,9 +519,24 @@ async function startRecording() {
           : `Mic error: ${perm.message}`, 'error');
       setRecording(false); return;
     }
-    setMsg('#sttStatus', 'Listening…');
+    // "auto" has no meaning for Web Speech (it needs a concrete tag) — use the
+    // browser UI language as the best guess.
+    const wsLang = webSpeechLang($('#sttLang').value, navigator.language);
+    // On-device: ensure the local model is present (Chrome on-device Web Speech).
+    // Feature-detected + defensive — degrades to normal Web Speech if the API
+    // (or a downloaded model) isn't available.
+    if (onDevice) {
+      const ready = await ensureOnDeviceModel(SR, wsLang);
+      if (!ready.ok) {
+        setMsg('#sttStatus', ready.message, 'error');
+        setRecording(false); return;
+      }
+    }
+    setMsg('#sttStatus', onDevice ? 'Listening (on-device)…' : 'Listening…');
+    startLocalWaveform();
     recognizer = new SR();
-    recognizer.lang = $('#sttLang').value;
+    recognizer.lang = wsLang;
+    if (onDevice) { try { recognizer.processLocally = true; } catch (_) {} }
     recognizer.continuous = true;
     recognizer.interimResults = true;
     const baseline = $('#transcript').value;
@@ -536,6 +560,7 @@ async function startRecording() {
       else if (e.error === 'network') msg = 'Network error (Web Speech needs internet).';
       hadError = true;
       setMsg('#sttStatus', msg, 'error');
+      stopLocalWaveform();
       setRecording(false);
     };
     recognizer.onend = () => {
@@ -637,7 +662,8 @@ async function finishWebSpeech(finalText) {
 async function stopRecording() {
   const provider = $('#sttProvider').value;
 
-  if (provider === 'webspeech') {
+  if (provider === 'webspeech' || provider === 'webspeech_local') {
+    stopLocalWaveform();
     setRecording(false);
     if (recognizer) { try { recognizer.stop(); } catch (_) {} recognizer = null; }
     return;
@@ -673,38 +699,41 @@ async function stopRecording() {
     return;
   }
 
-  // Stash the blob so user can download / re-transcribe / translate
+  // Decode the base64 payload ONCE into a Blob, then reuse it for transcription,
+  // download and translate — providers accept a Blob directly (no second decode).
   lastRecordedBlob = await (await fetch(res.dataUrl)).blob();
   lastRecordedMime = res.mimeType;
   $('#downloadAudio').disabled = false;
 
-  await transcribeCloud({ dataUrl: res.dataUrl, mimeType: res.mimeType, provider });
+  await transcribeCloud({ audio: lastRecordedBlob, mimeType: res.mimeType, provider });
 }
 
-async function transcribeCloud({ dataUrl, mimeType, provider, translate }) {
+// `audio` may be a Blob/File (preferred — no base64 decode) or a data URL.
+async function transcribeCloud({ audio, mimeType, provider, translate }) {
   try {
     setMsg('#sttStatus', translate ? 'Translating…' : 'Transcribing…');
     const settings = await Storage.getSettings();
     const keys = await Storage.getKeys();
+    const lang = settings.sttLang;
     let text = '';
     if (provider === 'assemblyai') {
-      text = await STT.assemblyai.transcribe({ audio: dataUrl, mimeType, apiKey: keys.assemblyaiKey });
+      text = await STT.assemblyai.transcribe({ audio, mimeType, apiKey: keys.assemblyaiKey, lang });
     } else if (provider === 'openai') {
       text = await STT.openai.transcribe({
-        audio: dataUrl, mimeType, apiKey: keys.openaiKey,
+        audio, mimeType, apiKey: keys.openaiKey,
         model: settings.openaiSttModel, translate: !!translate
       });
     } else if (provider === 'groq') {
       text = await STT.groq.transcribe({
-        audio: dataUrl, mimeType, apiKey: keys.groqKey, model: settings.groqSttModel
+        audio, mimeType, apiKey: keys.groqKey, model: settings.groqSttModel
       });
     } else if (provider === 'deepgram') {
       text = await STT.deepgram.transcribe({
-        audio: dataUrl, mimeType, apiKey: keys.deepgramKey, model: settings.deepgramModel
+        audio, mimeType, apiKey: keys.deepgramKey, model: settings.deepgramModel, lang
       });
     } else if (provider === 'speechmatics') {
       text = await STT.speechmatics.transcribe({
-        audio: dataUrl, mimeType, apiKey: keys.speechmaticsKey, lang: settings.sttLang
+        audio, mimeType, apiKey: keys.speechmaticsKey, lang
       });
     }
     const cur = $('#transcript').value;
@@ -830,13 +859,9 @@ async function handleAudioFile(file) {
   lastRecordedMime = file.type || 'audio/webm';
   $('#downloadAudio').disabled = false;
 
-  const reader = new FileReader();
-  reader.onloadend = async () => {
-    await transcribeCloud({
-      dataUrl: reader.result, mimeType: file.type, provider
-    });
-  };
-  reader.readAsDataURL(file);
+  // The File is already an in-memory Blob — hand it straight to the provider
+  // instead of round-tripping through a base64 data URL.
+  await transcribeCloud({ audio: file, mimeType: file.type, provider });
 }
 
 // ─── TTS ─────────────────────────────────────────────────
@@ -893,10 +918,6 @@ async function speak(text) {
         text, apiKey: keys.openaiKey,
         voice: $('#openaiVoice').value,
         model: $('#openaiTtsModel').value
-      });
-    } else if (provider === 'freetts') {
-      blob = await TTS.freetts.synthesize({
-        text, voice: $('#freeTtsVoice').value || settings.freeTtsVoice
       });
     } else if (provider === 'gtranslate') {
       blob = await TTS.gtranslate.synthesize({
@@ -994,8 +1015,38 @@ $('#liveStream').addEventListener('change', e => {
   chrome.storage.local.set({ liveStreamPref: e.target.checked });
 });
 
+// ─── Keyboard shortcuts (discoverability) ────────────────
+// Show the user's ACTUAL assigned keys (they may have rebound them) and give
+// a one-click path to Chrome's shortcut editor.
+async function renderShortcutLabels() {
+  try {
+    const cmds = await chrome.commands.getAll();
+    const map = {
+      'read-selection': ['#scKeyReadSelection', '#onboardScSelection'],
+      'read-page': ['#scKeyReadPage', '#onboardScPage'],
+      'stop-playback': ['#scKeyStop', '#onboardScStop'],
+      'push-to-talk': ['#scKeyDictate', '#onboardScDictate']
+    };
+    for (const c of cmds) {
+      if (!c.shortcut) continue;               // unassigned — keep the default hint
+      for (const sel of (map[c.name] || [])) {
+        const el = $(sel);
+        if (el) el.textContent = c.shortcut;
+      }
+    }
+  } catch (_) {}
+}
+function openShortcutsEditor() {
+  // chrome://extensions/shortcuts can't be opened via chrome.tabs on all builds;
+  // update() a new tab to that URL which Chrome permits from an extension page.
+  chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }).catch(() => {});
+}
+$('#editShortcuts')?.addEventListener('click', openShortcutsEditor);
+
 // ─── Boot ────────────────────────────────────────────────
 (async () => {
+  applyI18n();
+  await renderShortcutLabels();
   await loadSettings();
   if ($('#ttsProvider').value === 'elevenlabs') loadElevenVoices();
   const { liveStreamPref } = await chrome.storage.local.get('liveStreamPref');

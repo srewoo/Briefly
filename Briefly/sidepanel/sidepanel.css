@@ -296,3 +296,34 @@ kbd {
 
 #ttsAudio { width: 100%; margin-top: 12px; }
 audio:not([hidden]) { display: block; }
+
+/* ── Keyboard shortcuts (highlight feature) ────────────────── */
+kbd {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 1;
+  padding: 3px 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.shortcuts-card {
+  margin: 4px 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+.shortcuts-card h3 { margin: 0 0 4px; font-size: 14px; }
+.shortcuts-list {
+  list-style: none; margin: 10px 0 6px; padding: 0;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.shortcuts-list li {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  font-size: 13px;
+}
+.onboard kbd { font-size: 10px; padding: 2px 5px; }

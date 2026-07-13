@@ -21,8 +21,6 @@ const DEFAULTS = {
   deepgramTtsModel: 'aura-2-thalia-en',
   // Groq TTS (Orpheus voices: hannah, troy, austin)
   groqTtsVoice: 'hannah',
-  // FreeTTS (free neural) — Microsoft voice names
-  freeTtsVoice: 'en-US-JennyNeural',
   // Google Translate TTS
   gtranslateLang: 'en',
   // UI
@@ -36,6 +34,9 @@ const DEFAULTS = {
   // Silence auto-stop (ms; 0 = disabled)
   silenceTimeoutMs: 2500,
   autoCopyTranscript: true,
+  // Headless dictation (keyboard-shortcut pill)
+  dictateAiCleanup: true,      // punctuate / de-filler via LLM when a key exists
+  dictateVocabulary: '',       // comma/newline-separated names & jargon
   historyLimit: 50
 };
 

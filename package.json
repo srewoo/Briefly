@@ -1,9 +1,11 @@
 {
   "name": "briefly-extension",
-  "version": "3.0",
+  "version": "3.2",
   "private": true,
-  "description": "Briefly — minimal STT/TTS Chrome extension with pluggable providers (Web Speech, AssemblyAI, ElevenLabs, OpenAI).",
+  "type": "module",
+  "description": "Two-way voice: read any page aloud (text-to-speech) and dictate text by voice (speech-to-text). Fast, private, in-browser.",
   "scripts": {
+    "test": "node --test",
     "build": "rm -rf dist && mkdir -p dist && cd Briefly && zip -r ../dist/briefly.zip ."
   },
   "keywords": [

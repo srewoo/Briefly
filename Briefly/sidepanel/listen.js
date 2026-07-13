@@ -6,6 +6,8 @@ import {
   explainBatch, generateSummary, generateTechBrief, generatePodcastScript,
   toSegments, llmCostNote
 } from '../lib/llm.js';
+import { detectPageType, batchParagraphs } from '../lib/listen-utils.js';
+import { buildOptions, buildHostVoices } from '../lib/tts-options.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -25,20 +27,6 @@ let pageTabId = null;  // tab we extracted from (for highlight sync)
 let pageType = null;   // 'Jira issue' | 'Confluence page' | …
 let lastSrcIdx = -1;
 let genSession = 0;    // cancels in-flight LLM generation on stop/restart
-
-// ─── page-type detection ───────────────────────────────────
-
-function detectPageType(url, title = '') {
-  const u = url.toLowerCase();
-  if (/atlassian\.net\/browse\/|\/jira\/|jira\./.test(u)) return 'Jira issue';
-  if (/atlassian\.net\/wiki|confluence/.test(u)) return 'Confluence page';
-  if (/\/-\/merge_requests\/\d+/.test(u)) return 'GitLab merge request';
-  if (/github\.com\/.+\/pull\/\d+/.test(u)) return 'GitHub pull request';
-  if (/swagger|openapi|\/api-docs|\/reference\/|readme\.io/.test(u + ' ' + title.toLowerCase())) {
-    return 'API documentation';
-  }
-  return null;
-}
 
 // ─── page detection ────────────────────────────────────────
 
@@ -125,95 +113,7 @@ async function updateCost() {
   el.textContent = `Est. cost: ${ttsPart}${llmPart} (${(ttsChars / 1000).toFixed(1)}k chars)`;
 }
 
-// ─── provider options from saved settings/keys ─────────────
-
-async function buildOptions(provider) {
-  const [settings, keys] = await Promise.all([Storage.getSettings(), Storage.getKeys()]);
-  switch (provider) {
-    case 'webspeech':
-      return { options: { voiceURI: settings.ttsVoiceURI }, voiceSig: `ws:${settings.ttsVoiceURI}` };
-    case 'freetts':
-      return { options: { voice: settings.freeTtsVoice }, voiceSig: `free:${settings.freeTtsVoice}` };
-    case 'groqtts':
-      if (!keys.groqKey) throw new Error('Add a Groq API key in Settings first (free at console.groq.com).');
-      return {
-        options: { apiKey: keys.groqKey, voice: settings.groqTtsVoice, model: 'canopylabs/orpheus-v1-english' },
-        voiceSig: `gq:orpheus:${settings.groqTtsVoice}`
-      };
-    case 'deepgramtts':
-      if (!keys.deepgramKey) throw new Error('Add a Deepgram API key in Settings first ($200 free credit at deepgram.com).');
-      return {
-        options: { apiKey: keys.deepgramKey, model: settings.deepgramTtsModel },
-        voiceSig: `dg:${settings.deepgramTtsModel}`
-      };
-    case 'openai':
-      if (!keys.openaiKey) throw new Error('Add an OpenAI API key in Settings first.');
-      return {
-        options: { apiKey: keys.openaiKey, voice: settings.openaiTtsVoice, model: settings.openaiTtsModel },
-        voiceSig: `oa:${settings.openaiTtsModel}:${settings.openaiTtsVoice}`
-      };
-    case 'elevenlabs':
-      if (!keys.elevenlabsKey) throw new Error('Add an ElevenLabs API key in Settings first.');
-      return {
-        options: {
-          apiKey: keys.elevenlabsKey,
-          voiceId: settings.elevenVoiceId,
-          modelId: settings.elevenModelId,
-          stability: settings.elevenStability,
-          similarity: settings.elevenSimilarity
-        },
-        voiceSig: `el:${settings.elevenModelId}:${settings.elevenVoiceId}`
-      };
-    default:
-      throw new Error(`Unknown provider: ${provider}`);
-  }
-}
-
-// Two distinct voices for podcast mode. Host A keeps the user's configured
-// voice; Host B gets a stable, clearly different default.
-function buildHostVoices(provider, hostA) {
-  const a = { ...hostA.options };
-  const b = { ...hostA.options };
-  let sigB = hostA.voiceSig + ':B';
-  if (provider === 'openai') {
-    b.voice = a.voice === 'nova' ? 'onyx' : 'nova';
-    sigB = `oa:${b.model}:${b.voice}`;
-  } else if (provider === 'freetts') {
-    b.voice = a.voice?.includes('Guy') || a.voice?.includes('Ryan') ? 'en-US-JennyNeural' : 'en-US-GuyNeural';
-    sigB = `free:${b.voice}`;
-  } else if (provider === 'groqtts') {
-    b.voice = a.voice === 'troy' ? 'hannah' : 'troy';
-    sigB = `gq:orpheus:${b.voice}`;
-  } else if (provider === 'deepgramtts') {
-    b.model = a.model === 'aura-2-apollo-en' ? 'aura-2-thalia-en' : 'aura-2-apollo-en';
-    sigB = `dg:${b.model}`;
-  } else if (provider === 'elevenlabs') {
-    const RACHEL = '21m00Tcm4TlvDq8ikWAM';
-    const ADAM = 'pNInz6obpgDQGcFmaJgB';
-    b.voiceId = a.voiceId === RACHEL ? ADAM : RACHEL;
-    sigB = `el:${b.modelId}:${b.voiceId}`;
-  }
-  // webspeech: the player picks an alternate voice for Host B itself.
-  return {
-    hostVoices: { A: a, B: b },
-    voiceSigs: { A: hostA.voiceSig, B: sigB }
-  };
-}
-
 // ─── generation pipelines ──────────────────────────────────
-
-function batchParagraphs(paragraphs, maxChars) {
-  const batches = [];
-  let buf = [], len = 0;
-  for (const p of paragraphs) {
-    if (len + p.text.length > maxChars && buf.length) {
-      batches.push(buf); buf = []; len = 0;
-    }
-    buf.push(p); len += p.text.length;
-  }
-  if (buf.length) batches.push(buf);
-  return batches;
-}
 
 const send = (msg) => chrome.runtime.sendMessage(msg);
 

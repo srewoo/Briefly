@@ -66,7 +66,7 @@ export function chunkText(text, max) {
   return out.length ? out : [text];
 }
 
-function extFromMime(mime) {
+export function extFromMime(mime) {
   if (!mime) return 'webm';
   if (mime.includes('webm')) return 'webm';
   if (mime.includes('ogg')) return 'ogg';
@@ -142,6 +142,14 @@ export const STT = {
     needsKey: false,
     needsRecorder: false
   },
+  webspeech_local: {
+    // On-device Web Speech (offline, private). Availability is feature-detected
+    // in the side panel; audio never leaves the machine when supported.
+    name: 'On-device (offline, private)',
+    needsKey: false,
+    needsRecorder: false,
+    onDevice: true
+  },
   assemblyai: {
     name: 'AssemblyAI',
     needsKey: 'assemblyaiKey',
@@ -156,7 +164,7 @@ export const STT = {
       if (r.status === 401 || r.status === 403) return { ok: false, status: r.status };
       return { ok: true };
     },
-    async transcribe({ audio, mimeType, apiKey }) {
+    async transcribe({ audio, mimeType, apiKey, lang }) {
       if (!apiKey) throw new Error('AssemblyAI API key required.');
       const blob = toBlob(audio);
       const up = await rfetch('https://api.assemblyai.com/v2/upload', {
@@ -167,10 +175,13 @@ export const STT = {
       if (!up.ok) throw new Error(`AssemblyAI upload failed: ${up.status}`);
       const { upload_url } = await up.json();
 
+      // Auto-detect: let AssemblyAI identify the spoken language.
+      const body = { audio_url: upload_url };
+      if (lang === 'auto') body.language_detection = true;
       const create = await rfetch('https://api.assemblyai.com/v2/transcript', {
         method: 'POST',
         headers: { Authorization: apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audio_url: upload_url })
+        body: JSON.stringify(body)
       }, { label: 'AssemblyAI transcript' });
       if (!create.ok) throw new Error(`AssemblyAI job create failed: ${create.status}`);
       const { id } = await create.json();
@@ -273,9 +284,12 @@ export const STT = {
       // Submit a batch job (multipart: audio + JSON config), then poll.
       const form = new FormData();
       form.append('data_file', new File([blob], `audio.${ext}`, { type: blob.type }));
+      // Speechmatics has no simple batch auto-detect flag here; fall back to
+      // English when the user chose Auto-detect.
+      const smLang = (!lang || lang === 'auto') ? 'en' : lang.slice(0, 2);
       form.append('config', JSON.stringify({
         type: 'transcription',
-        transcription_config: { language: (lang || 'en').slice(0, 2), operating_point: 'enhanced' }
+        transcription_config: { language: smLang, operating_point: 'enhanced' }
       }));
       const create = await rfetch('https://asr.api.speechmatics.com/v2/jobs', {
         method: 'POST',
@@ -326,7 +340,9 @@ export const STT = {
         smart_format: 'true',
         punctuate: 'true'
       });
-      if (lang) params.set('language', lang);
+      // Auto-detect: Deepgram identifies the spoken language for us.
+      if (lang === 'auto') params.set('detect_language', 'true');
+      else if (lang) params.set('language', lang);
       const res = await rfetch(`https://api.deepgram.com/v1/listen?${params}`, {
         method: 'POST',
         headers: {
@@ -352,27 +368,6 @@ export const TTS = {
     name: 'Web Speech API (free, browser)',
     needsKey: false,
     inProcess: true
-  },
-  freetts: {
-    name: 'FreeTTS (free, neural)',
-    needsKey: false,
-    async synthesize({ text, voice, rate = '+0%', pitch = '+0Hz' }) {
-      if (!text || !text.trim()) throw new Error('Text is empty.');
-      const create = await rfetch('https://freetts.org/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice: voice || 'en-US-JennyNeural', rate, pitch })
-      }, { label: 'FreeTTS' });
-      if (!create.ok) {
-        const t = await create.text();
-        throw new Error(`FreeTTS failed: ${create.status} ${t.slice(0, 160)}`);
-      }
-      const { file_id } = await create.json();
-      if (!file_id) throw new Error('FreeTTS: no file_id returned.');
-      const audio = await rfetch(`https://freetts.org/api/audio/${file_id}`, { method: 'GET' }, { label: 'FreeTTS fetch' });
-      if (!audio.ok) throw new Error(`FreeTTS audio fetch failed: ${audio.status}`);
-      return await audio.blob();
-    }
   },
   gtranslate: {
     name: 'Google Translate TTS (free, short text)',

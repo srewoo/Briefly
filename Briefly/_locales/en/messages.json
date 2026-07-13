@@ -1,0 +1,45 @@
+{
+  "appName": { "message": "Briefly - Text to Speech & Dictation" },
+  "appDesc": { "message": "Two-way voice: read any page aloud (text-to-speech) and dictate text by voice (speech-to-text). Fast, private, in-browser." },
+
+  "tabStt": { "message": "Speech → Text" },
+  "tabTts": { "message": "Text → Speech" },
+  "tabListen": { "message": "🎧 Listen" },
+
+  "themeToggleTitle": { "message": "Toggle theme" },
+  "historyTitle": { "message": "History" },
+  "settingsTitle": { "message": "Settings" },
+
+  "labelProvider": { "message": "Provider" },
+  "labelLanguage": { "message": "Language" },
+  "labelTranscript": { "message": "Transcript" },
+  "labelVoiceProvider": { "message": "Voice provider" },
+  "labelMode": { "message": "Mode" },
+  "labelText": { "message": "Text" },
+
+  "btnRecordStart": { "message": "🎙 Start recording" },
+  "btnRecordStop": { "message": "⏹ Stop recording" },
+  "btnCopy": { "message": "Copy" },
+  "btnClear": { "message": "Clear" },
+  "btnSpeak": { "message": "🔊 Speak" },
+  "btnStop": { "message": "Stop" },
+  "btnPasteSpeak": { "message": "📋 Paste & speak" },
+  "btnDetectPage": { "message": "⟳ Detect page" },
+  "btnStartListening": { "message": "▶ Start listening" },
+  "btnSave": { "message": "Save" },
+  "btnResetAll": { "message": "Reset all" },
+  "btnClearAll": { "message": "Clear all" },
+
+  "transcriptPlaceholder": { "message": "Your transcribed text will appear here…" },
+  "ttsPlaceholder": { "message": "Type or paste text to speak…" },
+
+  "footerHelp": { "message": "? Help" },
+  "footerPrivacy": { "message": "Privacy" },
+
+  "shortcutsTitle": { "message": "Keyboard shortcuts" },
+  "shortcutsHint": { "message": "Read text aloud from any page without opening this window. Change keys at chrome://extensions/shortcuts." },
+  "scDictate": { "message": "Dictate → copy to clipboard" },
+  "scReadSelection": { "message": "Read selected text aloud" },
+  "scReadPage": { "message": "Read whole page aloud" },
+  "scStop": { "message": "Stop reading aloud" }
+}

@@ -125,7 +125,7 @@ export async function generatePodcastScript({ text, minutes, keys }) {
   throw new Error(`Podcast script generation failed: ${lastErr?.message || 'invalid output'}`);
 }
 
-function parsePodcastScript(raw) {
+export function parsePodcastScript(raw) {
   const jsonText = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
   const start = jsonText.indexOf('[');
   const end = jsonText.lastIndexOf(']');
@@ -141,6 +141,31 @@ function parsePodcastScript(raw) {
   });
   if (!turns.some(t => t.host === 'B')) throw new Error('single-host output');
   return turns;
+}
+
+// ─── Dictation cleanup ─────────────────────────────────────
+// Turn a raw speech transcript into polished written text: punctuation,
+// capitalization, filler removal, obvious-error fixes — without changing the
+// meaning or wording. Honors the user's custom vocabulary spellings. Groq
+// (free) is preferred; throws if no key (caller decides whether to skip).
+export async function cleanupTranscript({ text, keys, vocabulary = [] }) {
+  if (!text || !text.trim()) return text || '';
+  const vocabLine = vocabulary.length
+    ? ` The user often uses these names/terms — spell them exactly like this when they occur: ${vocabulary.join(', ')}.`
+    : '';
+  return chatComplete({
+    keys,
+    temperature: 0,
+    maxTokens: 1024,
+    system:
+      'You clean up dictated speech into polished written text. Add correct ' +
+      'punctuation and capitalization, remove filler words (um, uh, "like", ' +
+      '"you know") and false starts/repetitions, and fix obvious transcription ' +
+      'errors. Do NOT summarize, translate, answer, or change the meaning or ' +
+      'the speaker\'s wording.' + vocabLine +
+      ' Output ONLY the cleaned text, nothing else.',
+    user: text
+  });
 }
 
 // Rough cost note for the UI. Groq is effectively free; OpenAI mini is ~cents.

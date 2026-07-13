@@ -92,7 +92,7 @@
     <li>Click the Briefly icon in the toolbar to open the side panel (or press <kbd>⌘⇧P</kbd> / <kbd>Ctrl+Shift+P</kbd>).</li>
     <li>Pick a <strong>Speech → Text</strong> provider. <strong>Web Speech API</strong> works with no key.</li>
     <li>Hit <strong>🎙 Start recording</strong>, speak, then <strong>⏹ Stop</strong> — or wait for auto-stop on silence.</li>
-    <li>For <strong>Text → Speech</strong>, paste text and pick a voice. <strong>Web Speech</strong>, <strong>FreeTTS</strong>, and <strong>Google Translate</strong> work with no key.</li>
+    <li>For <strong>Text → Speech</strong>, paste text and pick a voice. <strong>Web Speech</strong> and <strong>Google Translate</strong> work with no key.</li>
   </ol>
 
   <h2>Keyboard shortcuts</h2>
@@ -101,10 +101,14 @@
       <tr><th>Shortcut</th><th>Action</th></tr>
     </thead>
     <tbody>
+      <tr><td><kbd>⌘⇧S</kbd> / <kbd>Ctrl+Shift+S</kbd></td><td><strong>Read selected text aloud</strong> — no window needed</td></tr>
+      <tr><td><kbd>⌘⇧U</kbd> / <kbd>Ctrl+Shift+U</kbd></td><td><strong>Read the whole page aloud</strong> — no window needed</td></tr>
+      <tr><td><kbd>⌘⇧X</kbd> / <kbd>Ctrl+Shift+X</kbd></td><td>Stop reading aloud</td></tr>
+      <tr><td><kbd>⌘⇧Space</kbd> / <kbd>Ctrl+Shift+Space</kbd></td><td><strong>Dictate → insert at cursor + clipboard</strong> — a recording pill appears; press again to insert the text where you're typing (and copy it)</td></tr>
       <tr><td><kbd>⌘⇧P</kbd> / <kbd>Ctrl+Shift+P</kbd></td><td>Open Briefly side panel</td></tr>
-      <tr><td><kbd>⌘⇧Space</kbd> / <kbd>Ctrl+Shift+Space</kbd></td><td>Push-to-talk — toggle recording from anywhere</td></tr>
     </tbody>
   </table>
+  <p><strong>These shortcuts don't require the panel to be open.</strong> Select any text and press <kbd>⌘⇧S</kbd> — Briefly reads it through your configured Text→Speech voice (free Web Speech by default). Press <kbd>⌘⇧Space</kbd> to dictate: a red pill appears on the page while it listens, and pressing again inserts the text at your cursor and copies it to the clipboard (after a ~1.5s settle so the last words are captured). In ⚙ Settings you can turn on <strong>AI cleanup</strong> (punctuation + filler removal via a Groq/OpenAI key) and add a <strong>custom vocabulary</strong> of names and jargon. Dictation uses the free Web Speech engine and runs on the page itself, so the first time you dictate on a site your browser asks for microphone access — click <strong>Allow</strong> (once per site). Shortcuts are disabled on browser-internal pages (<code>chrome://</code>, the Web Store) and on sites that block microphone use.</p>
   <p>You can rebind these at <code>chrome://extensions/shortcuts</code>.</p>
 
   <h2>Speech → Text providers</h2>
@@ -114,7 +118,8 @@
     </thead>
     <tbody>
       <tr><td>Web Speech API</td><td>✅ no key</td><td>Built-in</td><td>Chromium-only. Requires internet.</td></tr>
-      <tr><td>Groq Whisper</td><td>✅ free tier</td><td>—</td><td>Very fast batch (<code>whisper-large-v3-turbo</code>).</td></tr>
+      <tr><td>On-device (offline)</td><td>✅ no key</td><td>Built-in</td><td>Transcribes locally where Chrome ships an on-device model — audio never leaves your machine. Falls back gracefully if unavailable.</td></tr>
+      <tr><td>Groq Whisper</td><td>✅ free tier</td><td>—</td><td>Very fast batch (<code>whisper-large-v3-turbo</code>). Auto-detects language.</td></tr>
       <tr><td>Deepgram</td><td>🆓 free credits</td><td>✅ WebSocket</td><td><code>nova-3</code>.</td></tr>
       <tr><td>AssemblyAI</td><td>🆓 free credits</td><td>✅ Universal v3</td><td>Short-lived token-exchanged WS.</td></tr>
       <tr><td>Speechmatics</td><td>🆓 free tier</td><td>—</td><td>Batch jobs, strong accent / multilingual accuracy.</td></tr>
@@ -129,7 +134,6 @@
     </thead>
     <tbody>
       <tr><td>Web Speech API</td><td>✅ no key</td><td>OS voices with rate / pitch / volume sliders (install Premium OS voices for neural quality)</td></tr>
-      <tr><td>FreeTTS</td><td>✅ no key</td><td>Azure-backed neural voices; ~1,000 chars/hr free, best for short text</td></tr>
       <tr><td>Google Translate TTS</td><td>✅ no key</td><td>1 voice per language, best for short text</td></tr>
       <tr><td>Groq TTS</td><td>✅ free tier</td><td>PlayAI / Orpheus neural voices (one-time terms acceptance)</td></tr>
       <tr><td>Deepgram Aura</td><td>🆓 free credits</td><td>Aura-2 neural voices; best free-credit option for long content</td></tr>

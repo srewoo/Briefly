@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Briefly — Speech ⇄ Text",
-  "version": "3.0",
-  "description": "Voice ⇄ Text in your browser. Speech-to-text and text-to-speech with Web Speech, Deepgram, AssemblyAI, OpenAI, ElevenLabs.",
+  "name": "__MSG_appName__",
+  "version": "3.5",
+  "default_locale": "en",
+  "description": "__MSG_appDesc__",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -40,11 +41,31 @@
         "default": "Ctrl+Shift+Space",
         "mac": "Command+Shift+Space"
       },
-      "description": "Toggle recording"
+      "description": "Dictate: record speech, copy transcript to clipboard"
+    },
+    "read-selection": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Read the selected text aloud (no window needed)"
+    },
+    "read-page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+U",
+        "mac": "Command+Shift+U"
+      },
+      "description": "Read the whole page aloud (no window needed)"
+    },
+    "stop-playback": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+X",
+        "mac": "Command+Shift+X"
+      },
+      "description": "Stop reading aloud"
     }
   },
   "optional_host_permissions": [
-    "http://*/*",
     "https://*/*"
   ],
   "host_permissions": [
@@ -55,8 +76,7 @@
     "https://api.deepgram.com/*",
     "https://asr.api.speechmatics.com/*",
     "https://api.groq.com/*",
-    "https://translate.google.com/*",
-    "https://freetts.org/*"
+    "https://translate.google.com/*"
   ],
   "web_accessible_resources": [
     {
@@ -70,6 +90,6 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' data: https://api.assemblyai.com https://streaming.assemblyai.com wss://streaming.assemblyai.com https://api.elevenlabs.io https://api.openai.com https://api.deepgram.com wss://api.deepgram.com https://asr.api.speechmatics.com https://api.groq.com https://translate.google.com"
   }
 }

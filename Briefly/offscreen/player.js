@@ -5,13 +5,13 @@
 // Lives in the offscreen doc so playback survives the side panel closing.
 import { TTS, chunkText } from '../lib/providers.js';
 import { cacheKey, cacheGet, cachePut } from '../lib/audio-cache.js';
+import { encodeWav, episodeFormat } from '../lib/wav.js';
 
 const LOOKAHEAD = 2;
 // Per-request input caps: Deepgram /speak rejects >2000 chars; Groq PlayAI
-// caps around 10k but long inputs degrade — keep requests modest.
-// FreeTTS caps the free tier at 1000 chars/request; keep segments modest so
-// the lookahead pipeline hides latency.
-const PROVIDER_MAX_CHARS = { openai: 3800, elevenlabs: 4500, groqtts: 2800, deepgramtts: 1800, freetts: 950 };
+// caps around 10k but long inputs degrade — keep requests modest so the
+// lookahead pipeline hides latency.
+const PROVIDER_MAX_CHARS = { openai: 3800, elevenlabs: 4500, groqtts: 2800, deepgramtts: 1800 };
 
 const state = {
   status: 'idle',          // idle | loading | playing | paused | done | error
@@ -257,8 +257,44 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 // ─── export ────────────────────────────────────────────────
-// Synthesize any missing segments, concatenate the MP3 blobs (frame concat is
-// valid MP3), and hand a data URL to the service worker for chrome.downloads.
+
+// Build ONE valid audio file from per-segment blobs. Frame-concatenating is
+// only valid for MP3 streams; providers that return WAV (or a mix) would yield
+// a file where only the first segment plays. For those we decode every segment
+// and re-encode a single WAV. Returns { blob, ext }.
+async function buildEpisode(blobs) {
+  if (episodeFormat(blobs.map(b => b.type)) === 'mp3') {
+    return { blob: new Blob(blobs, { type: 'audio/mpeg' }), ext: 'mp3' };
+  }
+  // Non-MP3 or mixed containers → decode + concatenate PCM → one WAV.
+  const actx = new AudioContext();
+  try {
+    const buffers = [];
+    for (const b of blobs) {
+      buffers.push(await actx.decodeAudioData(await b.arrayBuffer()));
+    }
+    const sampleRate = buffers[0]?.sampleRate || 44100;
+    const total = buffers.reduce((n, buf) => n + buf.length, 0);
+    const merged = new Float32Array(total);
+    let offset = 0;
+    for (const buf of buffers) {
+      const ch0 = buf.getChannelData(0);
+      if (buf.numberOfChannels > 1) {
+        const ch1 = buf.getChannelData(1);
+        for (let i = 0; i < buf.length; i++) merged[offset + i] = (ch0[i] + ch1[i]) / 2;
+      } else {
+        merged.set(ch0, offset);
+      }
+      offset += buf.length;
+    }
+    return { blob: new Blob([encodeWav(merged, sampleRate)], { type: 'audio/wav' }), ext: 'wav' };
+  } finally {
+    actx.close().catch(() => {});
+  }
+}
+
+// Synthesize any missing segments, build a single valid file, and hand a data
+// URL to the service worker for chrome.downloads.
 async function exportAudio(filename) {
   if (!cfg || cfg.provider === 'webspeech') {
     throw new Error('Web Speech has no audio data to export — use OpenAI or ElevenLabs.');
@@ -268,14 +304,15 @@ async function exportAudio(filename) {
   for (let i = 0; i < segments.length; i++) {
     blobs.push(await synthesizeSegment(i));
   }
-  const full = new Blob(blobs, { type: 'audio/mpeg' });
+  const { blob, ext } = await buildEpisode(blobs);
+  const outName = filename.replace(/\.(mp3|wav|ogg)$/i, '') + '.' + ext;
   const dataUrl = await new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onloadend = () => resolve(r.result);
     r.onerror = () => reject(new Error('Failed to encode audio.'));
-    r.readAsDataURL(full);
+    r.readAsDataURL(blob);
   });
-  const res = await chrome.runtime.sendMessage({ type: 'DOWNLOAD_AUDIO', dataUrl, filename });
+  const res = await chrome.runtime.sendMessage({ type: 'DOWNLOAD_AUDIO', dataUrl, filename: outName });
   if (!res || !res.ok) throw new Error(res?.error || 'Download failed.');
   return { ok: true };
 }

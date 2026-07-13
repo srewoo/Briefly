@@ -1,0 +1,45 @@
+{
+  "appName": { "message": "Briefly - Texto a voz y dictado" },
+  "appDesc": { "message": "Voz en dos sentidos: lee cualquier página en voz alta (texto a voz) y dicta texto por voz (voz a texto). Rápido, privado, en el navegador." },
+
+  "tabStt": { "message": "Voz → Texto" },
+  "tabTts": { "message": "Texto → Voz" },
+  "tabListen": { "message": "🎧 Escuchar" },
+
+  "themeToggleTitle": { "message": "Cambiar tema" },
+  "historyTitle": { "message": "Historial" },
+  "settingsTitle": { "message": "Ajustes" },
+
+  "labelProvider": { "message": "Proveedor" },
+  "labelLanguage": { "message": "Idioma" },
+  "labelTranscript": { "message": "Transcripción" },
+  "labelVoiceProvider": { "message": "Proveedor de voz" },
+  "labelMode": { "message": "Modo" },
+  "labelText": { "message": "Texto" },
+
+  "btnRecordStart": { "message": "🎙 Grabar" },
+  "btnRecordStop": { "message": "⏹ Detener" },
+  "btnCopy": { "message": "Copiar" },
+  "btnClear": { "message": "Borrar" },
+  "btnSpeak": { "message": "🔊 Hablar" },
+  "btnStop": { "message": "Detener" },
+  "btnPasteSpeak": { "message": "📋 Pegar y hablar" },
+  "btnDetectPage": { "message": "⟳ Detectar página" },
+  "btnStartListening": { "message": "▶ Empezar a escuchar" },
+  "btnSave": { "message": "Guardar" },
+  "btnResetAll": { "message": "Restablecer todo" },
+  "btnClearAll": { "message": "Borrar todo" },
+
+  "transcriptPlaceholder": { "message": "Tu texto transcrito aparecerá aquí…" },
+  "ttsPlaceholder": { "message": "Escribe o pega texto para leer…" },
+
+  "footerHelp": { "message": "? Ayuda" },
+  "footerPrivacy": { "message": "Privacidad" },
+
+  "shortcutsTitle": { "message": "Atajos de teclado" },
+  "shortcutsHint": { "message": "Lee texto en voz alta desde cualquier página sin abrir esta ventana. Cambia las teclas en chrome://extensions/shortcuts." },
+  "scDictate": { "message": "Dictar → copiar al portapapeles" },
+  "scReadSelection": { "message": "Leer el texto seleccionado" },
+  "scReadPage": { "message": "Leer toda la página" },
+  "scStop": { "message": "Detener la lectura" }
+}

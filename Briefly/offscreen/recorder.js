@@ -112,6 +112,7 @@ async function start(config = {}) {
   }
 
   audioCtx = new AudioContext();
+  if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch (_) {} }
   const src = audioCtx.createMediaStreamSource(stream);
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 512;
@@ -258,13 +259,9 @@ function stopLiveMonitor() {
   silenceStartedAt = null;
 }
 
-async function startLiveDeepgram(config) {
-  if (liveWs) return { ok: false, error: 'already_streaming' };
-  const { apiKey, model = 'nova-3', lang } = config || {};
-  if (!apiKey) return { ok: false, error: 'no_key', message: 'Deepgram API key required.' };
-  silenceTimeoutMs = Number(config.silenceTimeoutMs) || 0;
-  silenceStartedAt = null;
-
+// Shared live-capture setup: mic → 16 kHz AudioContext → PCM worklet + analyser.
+// Both the Deepgram and AssemblyAI streaming paths use this identically.
+async function openLiveCapture() {
   try {
     liveStream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
@@ -272,14 +269,9 @@ async function startLiveDeepgram(config) {
   } catch (e) {
     return { ok: false, error: e.name === 'NotAllowedError' ? 'mic_denied' : 'mic_error', message: e.message };
   }
-
   liveCtx = new AudioContext({ sampleRate: 16000 });
-  try {
-    await liveCtx.audioWorklet.addModule(chrome.runtime.getURL('offscreen/pcm-worklet.js'));
-  } finally {
-    // no-op
-  }
-
+  if (liveCtx.state === 'suspended') { try { await liveCtx.resume(); } catch (_) {} }
+  await liveCtx.audioWorklet.addModule(chrome.runtime.getURL('offscreen/pcm-worklet.js'));
   const src = liveCtx.createMediaStreamSource(liveStream);
   liveAnalyser = liveCtx.createAnalyser();
   liveAnalyser.fftSize = 512;
@@ -287,6 +279,36 @@ async function startLiveDeepgram(config) {
   src.connect(liveAnalyser);
   liveWorklet = new AudioWorkletNode(liveCtx, 'pcm-writer');
   src.connect(liveWorklet);
+  return { ok: true };
+}
+
+// Shared WebSocket wiring: pump PCM on open, dispatch parsed messages to a
+// provider-specific handler, and forward error/close as stream events.
+function wireLiveSocket(ws, onResults) {
+  liveWs = ws;
+  liveWs.binaryType = 'arraybuffer';
+  liveWs.onopen = () => {
+    liveWorklet.port.onmessage = (ev) => {
+      if (liveWs && liveWs.readyState === WebSocket.OPEN) liveWs.send(ev.data);
+    };
+    startBackupRecorder();
+    startLiveMonitor();
+    notify({ type: 'STREAM_OPEN' });
+  };
+  liveWs.onmessage = (ev) => { try { onResults(JSON.parse(ev.data)); } catch (_) {} };
+  liveWs.onerror = () => notify({ type: 'STREAM_ERROR', message: 'WebSocket error.' });
+  liveWs.onclose = (ev) => notify({ type: 'STREAM_CLOSED', code: ev.code });
+}
+
+async function startLiveDeepgram(config) {
+  if (liveWs) return { ok: false, error: 'already_streaming' };
+  const { apiKey, model = 'nova-3', lang } = config || {};
+  if (!apiKey) return { ok: false, error: 'no_key', message: 'Deepgram API key required.' };
+  silenceTimeoutMs = Number(config.silenceTimeoutMs) || 0;
+  silenceStartedAt = null;
+
+  const cap = await openLiveCapture();
+  if (!cap.ok) return cap;
 
   const params = new URLSearchParams({
     model,
@@ -297,38 +319,21 @@ async function startLiveDeepgram(config) {
     punctuate: 'true',
     interim_results: 'true'
   });
-  if (lang) params.set('language', lang);
+  if (lang === 'auto') params.set('detect_language', 'true');
+  else if (lang) params.set('language', lang);
 
   // Deepgram supports auth via sub-protocol: ["token", "<KEY>"]
-  liveWs = new WebSocket(`wss://api.deepgram.com/v1/listen?${params}`, ['token', apiKey]);
-  liveWs.binaryType = 'arraybuffer';
-
-  liveWs.onopen = () => {
-    liveWorklet.port.onmessage = (ev) => {
-      if (liveWs && liveWs.readyState === WebSocket.OPEN) liveWs.send(ev.data);
-    };
-    startBackupRecorder();
-    startLiveMonitor();
-    notify({ type: 'STREAM_OPEN' });
-  };
-  liveWs.onmessage = (ev) => {
-    try {
-      const j = JSON.parse(ev.data);
-      if (j.type === 'Results') {
-        const alt = j.channel?.alternatives?.[0];
-        if (!alt) return;
-        notify({
-          type: 'STREAM_TRANSCRIPT',
-          text: alt.transcript || '',
-          isFinal: !!j.is_final,
-          speechFinal: !!j.speech_final
-        });
-      }
-    } catch (_) {}
-  };
-  liveWs.onerror = () => notify({ type: 'STREAM_ERROR', message: 'WebSocket error.' });
-  liveWs.onclose = (ev) => notify({ type: 'STREAM_CLOSED', code: ev.code });
-
+  wireLiveSocket(new WebSocket(`wss://api.deepgram.com/v1/listen?${params}`, ['token', apiKey]), (j) => {
+    if (j.type !== 'Results') return;
+    const alt = j.channel?.alternatives?.[0];
+    if (!alt) return;
+    notify({
+      type: 'STREAM_TRANSCRIPT',
+      text: alt.transcript || '',
+      isFinal: !!j.is_final,
+      speechFinal: !!j.speech_final
+    });
+  });
   return { ok: true };
 }
 
@@ -356,6 +361,9 @@ async function stopLive() {
   if (liveStream) { liveStream.getTracks().forEach(t => t.stop()); liveStream = null; }
   return { ok: true };
 }
+
+// Note: headless dictation recognition runs in the page (content/pill.js), not
+// here — the Web Speech API isn't functional in an offscreen document.
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
@@ -404,54 +412,21 @@ async function startLiveAssemblyAI(config) {
     return { ok: false, error: 'token_failed', message: e.message };
   }
 
-  try {
-    liveStream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-    });
-  } catch (e) {
-    return { ok: false, error: e.name === 'NotAllowedError' ? 'mic_denied' : 'mic_error', message: e.message };
-  }
-
-  liveCtx = new AudioContext({ sampleRate: 16000 });
-  await liveCtx.audioWorklet.addModule(chrome.runtime.getURL('offscreen/pcm-worklet.js'));
-
-  const src = liveCtx.createMediaStreamSource(liveStream);
-  liveAnalyser = liveCtx.createAnalyser();
-  liveAnalyser.fftSize = 512;
-  liveAnalyser.smoothingTimeConstant = 0.7;
-  src.connect(liveAnalyser);
-  liveWorklet = new AudioWorkletNode(liveCtx, 'pcm-writer');
-  src.connect(liveWorklet);
+  const cap = await openLiveCapture();
+  if (!cap.ok) return cap;
 
   const params = new URLSearchParams({
     sample_rate: '16000',
     format_turns: 'true',
     token
   });
-  liveWs = new WebSocket(`wss://streaming.assemblyai.com/v3/ws?${params}`);
-  liveWs.binaryType = 'arraybuffer';
-
-  liveWs.onopen = () => {
-    liveWorklet.port.onmessage = (ev) => {
-      if (liveWs && liveWs.readyState === WebSocket.OPEN) liveWs.send(ev.data);
-    };
-    startBackupRecorder();
-    startLiveMonitor();
-    notify({ type: 'STREAM_OPEN' });
-  };
-  liveWs.onmessage = (ev) => {
-    try {
-      const j = JSON.parse(ev.data);
-      // AssemblyAI v3 emits "Turn" events with end_of_turn flag
-      if (j.type === 'Turn' || j.transcript !== undefined) {
-        const text = j.transcript || '';
-        const isFinal = !!(j.end_of_turn || j.turn_is_formatted);
-        if (text) notify({ type: 'STREAM_TRANSCRIPT', text, isFinal });
-      }
-    } catch (_) {}
-  };
-  liveWs.onerror = () => notify({ type: 'STREAM_ERROR', message: 'WebSocket error.' });
-  liveWs.onclose = (ev) => notify({ type: 'STREAM_CLOSED', code: ev.code });
-
+  wireLiveSocket(new WebSocket(`wss://streaming.assemblyai.com/v3/ws?${params}`), (j) => {
+    // AssemblyAI v3 emits "Turn" events with end_of_turn flag
+    if (j.type === 'Turn' || j.transcript !== undefined) {
+      const text = j.transcript || '';
+      const isFinal = !!(j.end_of_turn || j.turn_is_formatted);
+      if (text) notify({ type: 'STREAM_TRANSCRIPT', text, isFinal });
+    }
+  });
   return { ok: true };
 }
