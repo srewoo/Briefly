@@ -1,6 +1,6 @@
 {
   "name": "briefly-extension",
-  "version": "3.2",
+  "version": "3.6",
   "private": true,
   "type": "module",
   "description": "Two-way voice: read any page aloud (text-to-speech) and dictate text by voice (speech-to-text). Fast, private, in-browser.",
