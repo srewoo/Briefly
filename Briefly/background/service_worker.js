@@ -14,13 +14,22 @@ const PANEL_PATH = 'sidepanel/sidepanel.html';
 // user opens it — so it doesn't appear on every tab of the window.
 chrome.sidePanel.setOptions({ enabled: false }).catch(() => {});
 
-async function openPanelForTab(tabId) {
-  await chrome.sidePanel.setOptions({ tabId, path: PANEL_PATH, enabled: true });
-  await chrome.sidePanel.open({ tabId });
+// `sidePanel.open()` may only be called while the user gesture is still
+// active. Awaiting anything first (even setOptions) drops the gesture and the
+// call rejects, so both calls are issued in the same synchronous turn — the
+// browser applies them in order, so open() sees the panel already enabled.
+function openPanelForTab(tabId) {
+  const configured = chrome.sidePanel
+    .setOptions({ tabId, path: PANEL_PATH, enabled: true });
+  const opened = chrome.sidePanel.open({ tabId });
+  return Promise.all([configured, opened]);
 }
 
 chrome.action.onClicked.addListener((tab) => {
-  if (tab?.id != null) openPanelForTab(tab.id).catch(() => {});
+  if (tab?.id == null) return;
+  openPanelForTab(tab.id).catch((e) => {
+    console.error('Briefly: failed to open side panel', e);
+  });
 });
 
 async function hasOffscreen() {
